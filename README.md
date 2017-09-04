@@ -14,32 +14,32 @@ Small ROS/Raspberry controlled roboter
 * Autonomous navigation and map building
 
 ## RPI Connection:
-** PWM Motor Driver **
-GPIO_PWML  19
-GPIO_IN0L  26
-GPIO_IN1L  13
+* PWM Motor Driver<br>
+GPIO_PWML  19<br>
+GPIO_IN0L  26<br>
+GPIO_IN1L  13<br>
+<br>
+GPIO_PWMR  21<br>
+GPIO_IN0R  20<br>
+GPIO_IN1R  16<br>
 
-GPIO_PWMR  21
-GPIO_IN0R  20
-GPIO_IN1R  16
+* Sonar (HC-SR04 PWM signal)
+GPIO_SONAR 4<br>
 
-** Sonar (HC-SR04 PWM signal) **
-GPIO_SONAR 4
+* Line Laser On/Off
+GPIO_LASER 23<br>
 
-** Line Laser On/Off **
-GPIO_LASER 23
+* DC Motor wheel encoder input
+GPIO_ODOL  5<br>
+GPIO_ODOR  6<br>
 
-** DC Motor wheel encoder input **
-GPIO_ODOL  5
-GPIO_ODOR  6
+* RPI Camera
 
-** RPI Camera **
+* IMU/MPU-9250
+RPI I2C Pins<br>
 
-** IMU/MPU-9250 **
-RPI I2C Pins
-
-** Real Time Clock **
-RPI I2C Pins
+* Real Time Clock
+RPI I2C Pins<br>
 
 ## RPI Installation:
 install Ubuntu Mate
