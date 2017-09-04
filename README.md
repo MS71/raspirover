@@ -41,8 +41,8 @@ RPI I2C Pins<br>
 RPI I2C Pins<br>
 
 ## RPI Installation:
-install Ubuntu Mate
-Install ROS (kinetic) using apt-get
+install Ubuntu Mate<br>
+Install ROS (kinetic) using apt-get<br>
 
 >git clone https://github.com/MS71/raspirover.git
 
@@ -50,6 +50,12 @@ Install ROS (kinetic) using apt-get
 >cd raspirover/ros_catkin_ws
 >source devel/setup.sh 
 >roslaunch raspirover raspirover.launch
+
+install ROS web interface<br>
+>sudo apt-get install lighttpd
+>cd /var/www
+>mv html html.org
+>ln -s /home/pi/raspirover/ros-control-center html
 
 ## On Host:
 >ROS_MASTER_URI=http://raspirover:11311
