@@ -22,22 +22,22 @@ GPIO_PWMR  21<br>
 GPIO_IN0R  20<br>
 GPIO_IN1R  16<br>
 
-* Sonar (HC-SR04 PWM signal)
+* Sonar (HC-SR04 PWM signal)<br>
 GPIO_SONAR 4<br>
 
-* Line Laser On/Off
+* Line Laser On/Off<br>
 GPIO_LASER 23<br>
 
-* DC Motor wheel encoder input
+* DC Motor wheel encoder input<br>
 GPIO_ODOL 5<br>
 GPIO_ODOR 6<br>
 
-* RPI Camera
+* RPI Camera<br>
 
 * IMU/MPU-9250
 RPI I2C Pins<br>
 
-* Real Time Clock
+* Real Time Clock<br>
 RPI I2C Pins<br>
 
 ## RPI Installation:
