@@ -29,8 +29,8 @@ GPIO_SONAR 4<br>
 GPIO_LASER 23<br>
 
 * DC Motor wheel encoder input
-GPIO_ODOL  5<br>
-GPIO_ODOR  6<br>
+GPIO_ODOL 5<br>
+GPIO_ODOR 6<br>
 
 * RPI Camera
 
