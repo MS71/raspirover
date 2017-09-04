@@ -18,7 +18,6 @@ Small ROS/Raspberry controlled roboter
 GPIO_PWML  19<br>
 GPIO_IN0L  26<br>
 GPIO_IN1L  13<br>
-
 GPIO_PWMR  21<br>
 GPIO_IN0R  20<br>
 GPIO_IN1R  16<br>
