@@ -44,18 +44,18 @@ RPI I2C Pins<br>
 install Ubuntu Mate<br>
 Install ROS (kinetic) using apt-get<br>
 
->git clone https://github.com/MS71/raspirover.git
+>git clone https://github.com/MS71/raspirover.git<br>
 
->source /opt/ros/kinetic/setup.sh
->cd raspirover/ros_catkin_ws
->source devel/setup.sh 
->roslaunch raspirover raspirover.launch
+>source /opt/ros/kinetic/setup.sh<br>
+>cd raspirover/ros_catkin_ws<br>
+>source devel/setup.sh<br>
+>roslaunch raspirover raspirover.launch<br>
 
 install ROS web interface<br>
->sudo apt-get install lighttpd
->cd /var/www
->mv html html.org
->ln -s /home/pi/raspirover/ros-control-center html
+>sudo apt-get install lighttpd<br>
+>cd /var/www<br>
+>mv html html.org<br>
+>ln -s /home/pi/raspirover/ros-control-center html<br>
 
 ## On Host:
 >ROS_MASTER_URI=http://raspirover:11311
