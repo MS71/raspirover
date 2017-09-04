@@ -59,3 +59,8 @@ install ROS web interface<br>
 
 ## On Host:
 >ROS_MASTER_URI=http://raspirover:11311
+
+## ROS configuration:
+![TF](https://github.com/MS71/raspirover/blob/master/misc/tf.png)
+
+![ROS-Graph](https://github.com/MS71/raspirover/blob/master/misc/rosgraph.png)
