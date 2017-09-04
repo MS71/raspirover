@@ -19,23 +19,23 @@ TODO/Plan:
 
 RPI Connection:
 * PWM Motor Driver
-#define GPIO_PWML  19
-#define GPIO_IN0L  26
-#define GPIO_IN1L  13
+GPIO_PWML  19
+GPIO_IN0L  26
+GPIO_IN1L  13
 
-#define GPIO_PWMR  21
-#define GPIO_IN0R  20
-#define GPIO_IN1R  16
+GPIO_PWMR  21
+GPIO_IN0R  20
+GPIO_IN1R  16
 
 * Sonar (HC-SR04 PWM signal)
-#define GPIO_SONAR 4
+GPIO_SONAR 4
 
 * Line Laser On/Off
-#define GPIO_LASER 23
+GPIO_LASER 23
 
 * DC Motor wheel encoder input
-#define GPIO_ODOL  5
-#define GPIO_ODOR  6
+GPIO_ODOL  5
+GPIO_ODOR  6
 
 * RPI Camera
 
