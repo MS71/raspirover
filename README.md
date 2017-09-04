@@ -1,7 +1,7 @@
-# raspirover
-small ROS/Raspberry controlled roboter
+# RaspiRover
+Small ROS/Raspberry controlled roboter
 
-Features:
+## Features:
 * RPI based robot
 * DC motor control by using wiringpi PWM
 * Motor ODM encoder by using wiringpi interrupts
@@ -10,15 +10,11 @@ Features:
 * Controlled by Wireless Joystick connected on RPI USB Port
 * HC-SR04 ultrasonic range sensor
 
-
-
-TODO/Plan:
+## TODO/Plan:
 * Autonomous navigation and map building
 
-
-
-RPI Connection:
-* PWM Motor Driver
+## RPI Connection:
+** PWM Motor Driver **
 GPIO_PWML  19
 GPIO_IN0L  26
 GPIO_IN1L  13
@@ -27,29 +23,27 @@ GPIO_PWMR  21
 GPIO_IN0R  20
 GPIO_IN1R  16
 
-* Sonar (HC-SR04 PWM signal)
+** Sonar (HC-SR04 PWM signal) **
 GPIO_SONAR 4
 
-* Line Laser On/Off
+** Line Laser On/Off **
 GPIO_LASER 23
 
-* DC Motor wheel encoder input
+** DC Motor wheel encoder input **
 GPIO_ODOL  5
 GPIO_ODOR  6
 
-* RPI Camera
+** RPI Camera **
 
-* IMU/MPU-9250
+** IMU/MPU-9250 **
 RPI I2C Pins
 
-* Real Time Clock
+** Real Time Clock **
 RPI I2C Pins
 
-
-
-RPI Installation:
-* install Ubuntu Mate
-* Install ROS (kinetic) using apt-get
+## RPI Installation:
+install Ubuntu Mate
+Install ROS (kinetic) using apt-get
 
 >git clone https://github.com/MS71/raspirover.git
 
@@ -58,10 +52,5 @@ RPI Installation:
 >source devel/setup.sh 
 >roslaunch raspirover raspirover.launch
 
-
-
-On Host:
+## On Host:
 >ROS_MASTER_URI=http://raspirover:11311
-
-
-
