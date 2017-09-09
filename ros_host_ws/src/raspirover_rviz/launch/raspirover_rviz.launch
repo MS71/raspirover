@@ -1,0 +1,4 @@
+<launch>
+  <param name="robot_description" textfile="$(find raspirover_rviz)/urdf/raspirover.urdf" />
+  <node name="rviz" pkg="rviz" type="rviz" required="true" />
+</launch>
