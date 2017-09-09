@@ -12,7 +12,7 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
-*/
+ */
 
 #include <ros/console.h>
 #include "ros/ros.h"
@@ -24,6 +24,7 @@
 #include "raspirovernode.h"
 #include <math.h>
 #include <sensor_msgs/Range.h>
+#include <sensor_msgs/LaserScan.h>
 #include <signal.h>
 
 #include <tf/transform_broadcaster.h>
@@ -59,14 +60,17 @@
 #define GPIO_IN0R  20
 #define GPIO_IN1R  16
 
+#define GPIO_TEST1 17
+#define GPIO_TEST2 27
+#define GPIO_TEST3 22
+
 /*
  * global data
  */
 ros::Time odo_last_time;
-
+ros::Time sonar_last_time;
 static struct
 {
-	int update_flag;
 	double x;
 	double y;
 	double th;
@@ -75,7 +79,6 @@ static struct
 	double vy;
 	double vth;
 } odo = {
-		0,
 		0.0,
 		0.0,
 		0.0,
@@ -85,21 +88,15 @@ static struct
 
 ros::Publisher odom_pub;
 
-int odo_0_step = 0;
-int odo_0_cnt = 0;
+volatile int odo_0_step = 0;
+volatile int odo_0_cnt = 0;
+volatile int odo_0_cntx = 0;
+volatile int odo_0_pin = 0;
 
-int odo_1_step = 0;
-int odo_1_cnt = 0;
-
-/*
- *
- */
-unsigned long uNow()
-{
-	struct timeval tv;
-	gettimeofday(&tv,NULL);
-	return tv.tv_usec + 1000000UL * tv.tv_sec;
-}
+volatile int odo_1_step = 0;
+volatile int odo_1_cnt = 0;
+volatile int odo_1_cntx = 0;
+volatile int odo_1_pin = 0;
 
 /*
  *
@@ -177,9 +174,11 @@ void motor( int m, int vel )
  */
 void motor_odoint_0(void)
 {
+	//digitalWrite (GPIO_TEST2, HIGH);
 	odo_0_cnt += odo_0_step;
-	odo.update_flag = 1;
-	return;
+	odo_0_cntx += 1;
+	//printf("motor_odoint_0 %d %d %d %d %d %d\n”",odo_0_step,digitalRead(GPIO_ODOR),odo_0_cntx,odo_0_cnt,odo_1_cntx,odo_1_cnt);
+	//digitalWrite (GPIO_TEST2, LOW);
 }
 
 /*
@@ -187,9 +186,11 @@ void motor_odoint_0(void)
  */
 void motor_odoint_1(void)
 {
+	//digitalWrite (GPIO_TEST3, HIGH);
 	odo_1_cnt += odo_1_step;
-	odo.update_flag = 1;
-	return;
+	odo_1_cntx += 1;
+	//printf("motor_odoint_1 %d %d %d %d %d %d\n”",odo_1_step,digitalRead(GPIO_ODOR),odo_0_cntx,odo_0_cnt,odo_1_cntx,odo_1_cnt);
+	//digitalWrite (GPIO_TEST3, LOW);
 }
 
 /*
@@ -198,15 +199,24 @@ void motor_odoint_1(void)
 unsigned long t_sonar = 0;
 void sonarint(void)
 {
-	static unsigned long _t = 0;
-	unsigned long t = uNow();
-	if( _t != 0 )
+	static int first = 1;
+	static int _pin = 0;
+	static ros::Time _t;
+	ros::Time t = ros::Time::now();
+	if( first == 0 )
 	{
-		if( digitalRead(GPIO_SONAR) == 0 )
+		int pin = digitalRead(GPIO_SONAR);
+		if( pin != _pin )
 		{
-			t_sonar = ((9*t_sonar)+(t-_t))/10;
+			if( pin == 0 )
+			{
+				unsigned long dt = (t-_t).toSec()*1000000.0;
+				t_sonar = ((2*t_sonar)+dt)/3;
+			}
+			_pin = pin;
 		}
 	}
+	first = 0;
 	_t = t;
 	return;
 }
@@ -264,7 +274,7 @@ void handleODO(tf::TransformBroadcaster& tf_broadcaster)
 {
 	ros::Time current_time = ros::Time::now();
 	double dt = (current_time - odo_last_time).toSec();
-	if(( odo.update_flag == 1 )&&(dt>=0.1))
+	if(dt>=0.1)
 	{
 		/*
 		 * https://answers.ros.org/question/207392/generating-odom-message-from-encoder-ticks-for-robot_pose_ekf/
@@ -274,12 +284,16 @@ void handleODO(tf::TransformBroadcaster& tf_broadcaster)
 		static double y = 0;
 		static double th = 0;
 
-		double DistancePerCount = 0.6/17.0;
-		double lengthBetweenTwoWheels = 0.1;
+		/*
+		 * 230 pulse auf 0.95m
+		 */
+		//double DistancePerCount = 50.0/12.0 * 0.6/17.0;
+		double DistancePerCount = 0.95/230.0;
+		double lengthBetweenTwoWheels = 0.12;
 
 		//extract the wheel velocities from the tick signals count
-		double deltaLeft = odo_0_cnt;
-		double deltaRight = odo_1_cnt;
+		double deltaLeft = odo_1_cnt;
+		double deltaRight = odo_0_cnt;
 
 		double v_left = (deltaLeft * DistancePerCount) / dt;
 		double v_right = (deltaRight * DistancePerCount) / dt;
@@ -302,7 +316,7 @@ void handleODO(tf::TransformBroadcaster& tf_broadcaster)
 		geometry_msgs::TransformStamped odom_trans;
 		odom_trans.header.stamp = current_time;
 		odom_trans.header.frame_id = "odom";
-		odom_trans.child_frame_id = "base_link";
+		odom_trans.child_frame_id = "base_footprint";
 
 		odom_trans.transform.translation.x = x;
 		odom_trans.transform.translation.y = y;
@@ -324,11 +338,20 @@ void handleODO(tf::TransformBroadcaster& tf_broadcaster)
 		odom.pose.pose.orientation = odom_quat;
 
 		//set the velocity
-		odom.child_frame_id = "base_link";
+		odom.child_frame_id = "base_footprint";
 		odom.twist.twist.linear.x = vx;
 		odom.twist.twist.linear.y = vy;
 		odom.twist.twist.angular.z = vth;
 
+#if 0
+		printf("motor_odoint L(%d,%d,%f) R=(%d,%d,%f) vx=%f vy=%f vth=%f x=%f y=%f v=(%f,%f,%f)\n”",
+				odo_1_cntx,odo_1_cnt,v_left,
+				odo_0_cntx,odo_0_cnt,v_right,
+				vx,vy,
+				vth * 180/3.14,
+				x,y,
+				v_left,v_right,lengthBetweenTwoWheels);
+#endif
 		ROS_DEBUG("handleODO() dt=%f encoder=%d,%d,%d,%d position=%f,%f twist=%f,%f,%f ",
 				dt,
 				odo_0_cnt,odo_0_step,
@@ -346,7 +369,6 @@ void handleODO(tf::TransformBroadcaster& tf_broadcaster)
 
 		odo_0_cnt = 0;
 		odo_1_cnt = 0;
-		odo.update_flag = 0;
 	}
 }
 #endif
@@ -356,24 +378,59 @@ void handleODO(tf::TransformBroadcaster& tf_broadcaster)
  */
 #ifdef ENABLE_SONAR_PUB
 ros::Publisher sonar_pub;
+ros::Publisher scan_pub;
+
 void handleSonar()
 {
+	ros::Time current_time = ros::Time::now();
+	double dt = (current_time - sonar_last_time).toSec();
+	if(dt>=0.1)
+	{
 #ifdef HAVE_WIRINGPI
-	const static float MAX_DISTANCE = 30;
-	const static float DIST_SCALE = 58.0;
-	const static float TRAVEL_TIME_MAX = MAX_DISTANCE * DIST_SCALE;
+		const static float DIST_SCALE = 58.0;
+		{
 
-	sensor_msgs::Range range;
-	range.header.frame_id = "sonar_link";
-	range.radiation_type = sensor_msgs::Range::ULTRASOUND;
-	range.min_range = 0.0;
-	range.max_range = MAX_DISTANCE;
+			sensor_msgs::Range range;
+			range.header.frame_id = "sonar_link";
+			range.radiation_type = sensor_msgs::Range::ULTRASOUND;
+			range.min_range = 0.0;
+			range.max_range = 6;
+			range.field_of_view = 15.0/90.0 * 3.14/2.0;
 
-	range.header.stamp = ros::Time::now();
-	range.range = t_sonar / DIST_SCALE;
+			range.header.stamp = ros::Time::now();
+			range.range = 0.01 * t_sonar / DIST_SCALE;
 
-	sonar_pub.publish(range);
+			sonar_pub.publish(range);
+		}
+		{
+#define num_readings 3
+#define laser_frequency 10
+
+			ros::Time scan_time = ros::Time::now();
+
+			//populate the LaserScan message
+			sensor_msgs::LaserScan scan;
+			scan.header.stamp = scan_time;
+			scan.header.frame_id = "laser_link";
+			scan.angle_min = -(5.0/360.0 * 2.0*3.14);
+			scan.angle_max = +(5.0/360.0 * 2.0*3.14);
+		    scan.angle_increment = (10.0/360.0 * 2.0*3.14) / num_readings;
+			scan.time_increment = (1 / laser_frequency) / (num_readings);
+			scan.range_min = 0.0;
+			scan.range_max = 100.0;
+
+			scan.ranges.resize(num_readings);
+			scan.intensities.resize(num_readings);
+			for(unsigned int i = 0; i < num_readings; i++)
+			{
+				scan.ranges[i] = 0.01 * t_sonar / DIST_SCALE;
+				scan.intensities[i] = 100;
+			}
+
+			scan_pub.publish(scan);
+		}
 #endif
+	}
 }
 #endif
 
@@ -451,26 +508,31 @@ int main(int argc, char **argv)
 		sprintf(s,"gpio export %d out",GPIO_PWMR); system(s);
 		sprintf(s,"gpio export %d out",GPIO_IN0R); system(s);
 		sprintf(s,"gpio export %d out",GPIO_IN1R); system(s);
+		sprintf(s,"gpio export %d out",GPIO_TEST1); system(s);
+		sprintf(s,"gpio export %d out",GPIO_TEST2); system(s);
+		sprintf(s,"gpio export %d out",GPIO_TEST3); system(s);
 		sprintf(s,"gpio -g write %d 0",GPIO_LASER); system(s);
 	}
 
 	wiringPiSetupSys();
+
+	piHiPri(99);
 
 	pwmSetMode(PWM_MODE_MS);
 
 	pinMode(GPIO_PWML,PWM_OUTPUT);
 	softPwmCreate(GPIO_PWML, 0, 100);
 
-	pinMode(GPIO_ODOL ,INPUT);
-	pullUpDnControl(GPIO_ODOL ,PUD_UP);
-	wiringPiISR(GPIO_ODOL, INT_EDGE_FALLING, &motor_odoint_0);
-
 	pinMode(GPIO_PWMR,PWM_OUTPUT);
 	softPwmCreate (GPIO_PWMR, 0, 100);
 
+	pinMode(GPIO_ODOL ,INPUT);
+	pullUpDnControl(GPIO_ODOL ,PUD_UP);
+	wiringPiISR(GPIO_ODOL, INT_EDGE_BOTH, &motor_odoint_0);
+
 	pinMode(GPIO_ODOR ,INPUT);
 	pullUpDnControl(GPIO_ODOR ,PUD_UP);
-	wiringPiISR(GPIO_ODOR, INT_EDGE_FALLING, &motor_odoint_1);
+	wiringPiISR(GPIO_ODOR, INT_EDGE_BOTH, &motor_odoint_1);
 
 	pinMode(GPIO_SONAR ,INPUT);
 	wiringPiISR(GPIO_SONAR, INT_EDGE_BOTH, &sonarint);
@@ -479,10 +541,10 @@ int main(int argc, char **argv)
 	ROS_DEBUG("initializing cmd_vel ...");
 	ros::Subscriber sub = node.subscribe("cmd_vel", 10, cmd_vel_callback);
 
-	//ros::Subscriber sub_laser = node.subscribe("laser", 10, laser_callback);
-
+	sonar_last_time = ros::Time::now();
 #ifdef ENABLE_SONAR_PUB
 	sonar_pub = node.advertise<sensor_msgs::Range>("sonar", 10);
+	scan_pub = node.advertise<sensor_msgs::LaserScan>("scan", 10);
 #endif
 
 	odo_last_time = ros::Time::now();
@@ -490,35 +552,11 @@ int main(int argc, char **argv)
 	odom_pub = node.advertise<nav_msgs::Odometry>("odom", 10);
 #endif
 
-	ros::Rate loop_rate(10);
+	ros::Rate loop_rate(20);
 	tf::TransformBroadcaster tf_broadcaster;
 	while( node.ok() )
 	{
-		tf_broadcaster.sendTransform(
-				tf::StampedTransform(
-						tf::Transform(tf::Quaternion(0, 0, 0, 1), tf::Vector3(0.0, 0.0, 0.0)),
-						ros::Time::now(),"map", "odom"));
-		tf_broadcaster.sendTransform(
-				tf::StampedTransform(
-						tf::Transform(tf::Quaternion(0, 0, 0, 1), tf::Vector3(0.0, 0.0, 0.0)),
-						ros::Time::now(),"odom", "base_footprint"));
-		tf_broadcaster.sendTransform(
-				tf::StampedTransform(
-						tf::Transform(tf::Quaternion(0, 0, 0, 1), tf::Vector3(0.0, 0.0, 0.0)),
-						ros::Time::now(),"base_footprint", "base_link"));
-		tf_broadcaster.sendTransform(
-				tf::StampedTransform(
-						tf::Transform(tf::Quaternion(0, 0, 0, 1), tf::Vector3(0.0, 0.1, 0.1)),
-						ros::Time::now(),"base_link", "imu_link"));
-		tf_broadcaster.sendTransform(
-				tf::StampedTransform(
-						tf::Transform(tf::Quaternion(0, 0, 0, 1), tf::Vector3(0.0, 0.2, 0.1)),
-						ros::Time::now(),"base_link", "sonar_link"));
-		tf_broadcaster.sendTransform(
-				tf::StampedTransform(
-						tf::Transform(tf::Quaternion(0, 0, 0, 1), tf::Vector3(0.0, 0.2, 0.2)),
-						ros::Time::now(),"base_link", "camera_link"));
-
+		//handle_odoint();
 #ifdef ENABLE_SONAR_PUB
 		handleSonar();
 #endif
@@ -526,7 +564,10 @@ int main(int argc, char **argv)
 		handleODO(tf_broadcaster);
 #endif
 		ros::spinOnce();
+
+		digitalWrite (GPIO_TEST1, HIGH);
 		loop_rate.sleep();
+		digitalWrite (GPIO_TEST1, LOW);
 	}
 
 	return 0;

@@ -57,7 +57,7 @@ int main(int argc, char **argv)
         ROS_WARN_STREAM("No frame_id provided - default: " << frame_id);
     }
 
-    ros::Publisher imu_pub = nh.advertise<sensor_msgs::Imu>("imu", 1);
+    ros::Publisher imu_pub = nh.advertise<sensor_msgs::Imu>("imu", 10);
 
     // Load the RTIMULib.ini config file
     RTIMUSettings *settings = new RTIMUSettings(calibration_file_path.c_str(),
@@ -94,7 +94,7 @@ int main(int argc, char **argv)
             imu_msg.orientation.x = imu_data.fusionQPose.x(); 
             imu_msg.orientation.y = imu_data.fusionQPose.y(); 
             imu_msg.orientation.z = imu_data.fusionQPose.z(); 
-            imu_msg.orientation.w = imu_data.fusionQPose.scalar(); 
+            imu_msg.orientation.w = imu_data.fusionQPose.scalar();
 
             imu_msg.angular_velocity.x = imu_data.gyro.x();
             imu_msg.angular_velocity.y = imu_data.gyro.y();
