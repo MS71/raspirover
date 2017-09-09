@@ -434,6 +434,49 @@ void handleSonar()
 }
 #endif
 
+#if 0
+void handle_TF(tf::TransformBroadcaster& tf_broadcaster)
+{
+	static ros::Time _time;
+	ros::Time time = ros::Time::now();
+	double dt = (time - _time).toSec();
+	{
+		if( dt >= 0.5 )
+		{
+#if 0
+			<!--
+			<node pkg="tf" type="static_transform_publisher" name="tf_00" args="0 0 0 0 0 0 /map /odom 1"/>
+			<node pkg="tf" type="static_transform_publisher" name="tf_02" args="0 0 0 0 0 0 /base_footprint /base_link 1"/>
+			<node pkg="tf" type="static_transform_publisher" name="tf_03" args="0.04 0.02 0.04 0 0 0 /base_link /imu_link 1"/>
+			<node pkg="tf" type="static_transform_publisher" name="tf_04" args="0.08 0.01 0.04 0 0 0 /base_link /sonar_link 1"/>
+			<node pkg="tf" type="static_transform_publisher" name="tf_05" args="0.08 0.01 0.04 0 0 0 /base_link /laser_link 1"/>
+			<node pkg="tf" type="static_transform_publisher" name="tf_06" args="0.02 0.0 0.08 0 0 0 /base_link /camera_link 1"/>
+			-->
+#endif
+			{
+				geometry_msgs::Quaternion odom_quat = tf::createQuaternionMsgFromYaw(th);
+
+				geometry_msgs::TransformStamped odom_trans;
+				odom_trans.header.stamp = current_time;
+				odom_trans.header.frame_id = "odom";
+				odom_trans.child_frame_id = "base_footprint";
+
+				odom_trans.transform.translation.x = x;
+				odom_trans.transform.translation.y = y;
+				odom_trans.transform.translation.z = 0.0;
+				odom_trans.transform.rotation = odom_quat;
+
+				//send the transform
+				tf_broadcaster.sendTransform(odom_trans);
+			}
+
+
+			_time = time;
+		}
+	}
+}
+#endif
+
 /*
  * mySigintHandler
  */
@@ -557,6 +600,7 @@ int main(int argc, char **argv)
 	while( node.ok() )
 	{
 		//handle_odoint();
+		//handle_TF(tf_broadcaster);
 #ifdef ENABLE_SONAR_PUB
 		handleSonar();
 #endif
