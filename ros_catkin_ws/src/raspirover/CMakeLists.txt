@@ -134,7 +134,7 @@ include_directories(
 # add_dependencies(raspirover ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Declare a C++ executable
-add_executable(raspirover_node src/raspirovernode.cpp include/raspirovernode.h)
+add_executable(raspirover_node src/raspirovernode.cpp src/VL53L0X.cpp include/raspirovernode.h)
 
 ## Add cmake target dependencies of the executable
 ## same as for the library above
@@ -165,6 +165,8 @@ ENDIF(HAVE_WIRINGPI)
 
 # all install targets should use catkin DESTINATION variables
 # See http://ros.org/doc/api/catkin/html/adv_user_guide/variables.html
+
+add_definitions(-std=c++11) 
 
 ## Mark executable scripts (Python etc.) for installation
 ## in contrast to setup.py, you can choose the destination

@@ -39,6 +39,8 @@
 #include <wiringPiI2C.h>
 #endif
 
+#include "VL53L0X.h"
+
 #define ENABLE_SONAR_PUB
 #define ENABLE_ODOM_PUB
 
@@ -63,6 +65,10 @@
 #define GPIO_TEST1 17
 #define GPIO_TEST2 27
 #define GPIO_TEST3 22
+
+#define GPIO_LIDAR_PWM		12
+#define GPIO_LIDAR_GPIO1	24
+#define GPIO_LIDAR_XSHUT	25
 
 /*
  * global data
@@ -289,7 +295,7 @@ void handleODO(tf::TransformBroadcaster& tf_broadcaster)
 		 */
 		//double DistancePerCount = 50.0/12.0 * 0.6/17.0;
 		double DistancePerCount = 0.95/230.0;
-		double lengthBetweenTwoWheels = 0.12;
+		double lengthBetweenTwoWheels = 0.12*1.64/1.03169;
 
 		//extract the wheel velocities from the tick signals count
 		double deltaLeft = odo_1_cnt;
@@ -344,14 +350,16 @@ void handleODO(tf::TransformBroadcaster& tf_broadcaster)
 		odom.twist.twist.angular.z = vth;
 
 #if 0
-		printf("motor_odoint L(%d,%d,%f) R=(%d,%d,%f) vx=%f vy=%f vth=%f x=%f y=%f v=(%f,%f,%f)\n”",
+		printf("motor_odoint L(%d,%d,%f) R=(%d,%d,%f) vx=%f vy=%f vth=%f x=%f y=%f v=(%f,%f,%f) th=%f\n”",
 				odo_1_cntx,odo_1_cnt,v_left,
 				odo_0_cntx,odo_0_cnt,v_right,
 				vx,vy,
-				vth * 180/3.14,
+				vth,
 				x,y,
-				v_left,v_right,lengthBetweenTwoWheels);
+				v_left,v_right,lengthBetweenTwoWheels,
+				th);
 #endif
+
 		ROS_DEBUG("handleODO() dt=%f encoder=%d,%d,%d,%d position=%f,%f twist=%f,%f,%f ",
 				dt,
 				odo_0_cnt,odo_0_step,
@@ -384,7 +392,7 @@ void handleSonar()
 {
 	ros::Time current_time = ros::Time::now();
 	double dt = (current_time - sonar_last_time).toSec();
-	if(dt>=0.1)
+	if(dt>=0.05)
 	{
 #ifdef HAVE_WIRINGPI
 		const static float DIST_SCALE = 58.0;
@@ -402,6 +410,7 @@ void handleSonar()
 
 			sonar_pub.publish(range);
 		}
+#if 0
 		{
 #define num_readings 3
 #define laser_frequency 10
@@ -429,6 +438,7 @@ void handleSonar()
 
 			scan_pub.publish(scan);
 		}
+#endif
 #endif
 	}
 }
@@ -477,12 +487,116 @@ void handle_TF(tf::TransformBroadcaster& tf_broadcaster)
 }
 #endif
 
+static enum {
+	LIDAR_DIR_UP=0,
+	LIDAR_DIR_DOWN
+} lidar_pwm_dir = LIDAR_DIR_UP;
+#define GPIO_LIDAR_PWM_MAX 100
+//#define lidar_pwm_value_min (int)((0.7/10.0)*GPIO_LIDAR_PWM_MAX)
+//#define lidar_pwm_value_max (int)((2.9/10.0)*GPIO_LIDAR_PWM_MAX)
+#define lidar_pwm_value_min (int)((0.50/10.0)*GPIO_LIDAR_PWM_MAX)
+#define lidar_pwm_value_max (int)((2.0/10.0)*GPIO_LIDAR_PWM_MAX)
+static int lidar_pwm_value = lidar_pwm_value_min + (lidar_pwm_value_max-lidar_pwm_value_min)/2;
+static int lidar_pwm_step = 1;
+#define lidar_num_readings (1 + lidar_pwm_value_max - lidar_pwm_value_min)
+static float lidar_data[lidar_num_readings] = {0.0};
+static int lidar_send_topic = 0;
+
+VL53L0X* sensor = NULL;
+
+void handle_lidar_servo()
+{
+#if 1
+	static ros::Time _time;
+	ros::Time time = ros::Time::now();
+	double dt = (time - _time).toSec();
+	if( dt >= 0.05 )
+	{
+		_time = time;
+
+		if( scan_pub.getNumSubscribers() < 2 )
+		{
+			lidar_pwm_value = lidar_pwm_value_min + (lidar_pwm_value_max-lidar_pwm_value_min)/2;
+			lidar_send_topic = 0;
+		}
+		else
+		{
+			{
+				int i = lidar_pwm_value - lidar_pwm_value_min;
+				lidar_data[i] = 0.001 * sensor->readRangeSingleMillimeters();
+			}
+
+			if( lidar_send_topic == 1 )
+			{
+				lidar_send_topic = 0;
+				sensor_msgs::LaserScan lidar_scan;
+				lidar_scan.ranges.resize(lidar_num_readings);
+				lidar_scan.intensities.resize(lidar_num_readings);
+				lidar_scan.header.stamp = time;
+				lidar_scan.header.frame_id = "laser_link";
+				lidar_scan.angle_min = -(2.0*3.14 * 80.0/360.0);
+				lidar_scan.angle_max = +(2.0*3.14 * 80.0/360.0);
+				lidar_scan.angle_increment = (lidar_scan.angle_max-lidar_scan.angle_min) / lidar_num_readings;
+				lidar_scan.time_increment = 0.02;
+				lidar_scan.range_min = 0.0;
+				lidar_scan.range_max = 2.0;
+
+				for( int i=0;i<lidar_num_readings; i++ )
+				{
+					lidar_scan.ranges[i]= lidar_data[i];
+					//lidar_scan.ranges[i]= 0.5;
+					if( lidar_scan.ranges[i] > 2.0 )
+					{
+						lidar_scan.intensities[i] = 0.0;
+					}
+					else
+					{
+						lidar_scan.intensities[i] = 1.0;
+					}
+				}
+				scan_pub.publish(lidar_scan);
+			}
+
+			if( lidar_pwm_dir == LIDAR_DIR_UP )
+			{
+				lidar_pwm_value += lidar_pwm_step;
+				if( lidar_pwm_value >= lidar_pwm_value_max )
+				{
+					lidar_pwm_value = lidar_pwm_value_max;
+					lidar_pwm_dir = LIDAR_DIR_DOWN;
+					lidar_send_topic = 1;
+				}
+			}
+			else
+			{
+				lidar_pwm_value -= lidar_pwm_step;
+				if( lidar_pwm_value <= lidar_pwm_value_min )
+				{
+					lidar_pwm_value = lidar_pwm_value_min;
+					lidar_pwm_dir = LIDAR_DIR_UP;
+					lidar_send_topic = 1;
+				}
+			}
+		}
+
+		/*
+		 * next servo angle ...
+		 */
+		softPwmWrite (GPIO_LIDAR_PWM, lidar_pwm_value) ;
+	}
+#endif
+}
+
 /*
  * mySigintHandler
  */
 void mySigintHandler(int sig)
 {
 	ROS_DEBUG("mySigintHandler ...");
+
+	pinMode(GPIO_LIDAR_PWM,PWM_OUTPUT);
+	softPwmCreate(GPIO_LIDAR_PWM, lidar_pwm_value, GPIO_LIDAR_PWM_MAX);
+
 #ifdef HAVE_WIRINGPI
 	{
 		char s[256];
@@ -554,6 +668,11 @@ int main(int argc, char **argv)
 		sprintf(s,"gpio export %d out",GPIO_TEST1); system(s);
 		sprintf(s,"gpio export %d out",GPIO_TEST2); system(s);
 		sprintf(s,"gpio export %d out",GPIO_TEST3); system(s);
+
+		sprintf(s,"gpio export %d out",GPIO_LIDAR_PWM); system(s);
+		sprintf(s,"gpio export %d in",GPIO_LIDAR_GPIO1); system(s);
+		sprintf(s,"gpio export %d out",GPIO_LIDAR_XSHUT); system(s);
+
 		sprintf(s,"gpio -g write %d 0",GPIO_LASER); system(s);
 	}
 
@@ -562,6 +681,31 @@ int main(int argc, char **argv)
 	piHiPri(99);
 
 	pwmSetMode(PWM_MODE_MS);
+
+	pwmSetRange(1024);
+	pwmSetClock(100);
+
+	sensor = new VL53L0X(GPIO_LIDAR_XSHUT);
+	sensor->init();
+	sensor->setTimeout(200);
+
+	// Lower the return signal rate limit (default is 0.25 MCPS)
+	sensor->setSignalRateLimit(0.1);
+	// Increase laser pulse periods (defaults are 14 and 10 PCLKs)
+	sensor->setVcselPulsePeriod(VL53L0X::VcselPeriodPreRange, 18);
+	sensor->setVcselPulsePeriod(VL53L0X::VcselPeriodFinalRange, 14);
+
+	// Reduce timing budget to 20 ms (default is about 33 ms)
+	sensor->setMeasurementTimingBudget(20000);
+
+	/*
+	 * enable VL53L0X
+	 */
+	pinMode(GPIO_LIDAR_XSHUT,OUTPUT);
+	digitalWrite (GPIO_LIDAR_XSHUT, HIGH);
+
+	pinMode(GPIO_LIDAR_PWM,PWM_OUTPUT);
+	softPwmCreate(GPIO_LIDAR_PWM, lidar_pwm_value, GPIO_LIDAR_PWM_MAX);
 
 	pinMode(GPIO_PWML,PWM_OUTPUT);
 	softPwmCreate(GPIO_PWML, 0, 100);
@@ -595,12 +739,14 @@ int main(int argc, char **argv)
 	odom_pub = node.advertise<nav_msgs::Odometry>("odom", 10);
 #endif
 
-	ros::Rate loop_rate(20);
+	ros::Rate loop_rate(100);
 	tf::TransformBroadcaster tf_broadcaster;
 	while( node.ok() )
 	{
 		//handle_odoint();
 		//handle_TF(tf_broadcaster);
+		handle_lidar_servo();
+
 #ifdef ENABLE_SONAR_PUB
 		handleSonar();
 #endif
