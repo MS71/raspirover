@@ -342,12 +342,26 @@ void handleODO(tf::TransformBroadcaster& tf_broadcaster)
 		odom.pose.pose.position.y = y;
 		odom.pose.pose.position.z = 0.0;
 		odom.pose.pose.orientation = odom_quat;
+		odom.pose.covariance = {
+				0.01,  0.0,  0.0,  0.0,  0.0,  0.0,
+				0.0,  0.01,  0.0,  0.0,  0.0,  0.0,
+				0.0,   0.0, 0.01,  0.0,  0.0,  0.0,
+				0.0,   0.0,  0.0,  0.1,  0.0,  0.0,
+				0.0,   0.0,  0.0,  0.0,  0.1,  0.0,
+				0.0,   0.0,  0.0,  0.0,  0.0,  0.1 };
 
 		//set the velocity
 		odom.child_frame_id = "base_footprint";
 		odom.twist.twist.linear.x = vx;
 		odom.twist.twist.linear.y = vy;
 		odom.twist.twist.angular.z = vth;
+		odom.twist.covariance = {
+				0.01,  0.0,  0.0,  0.0,  0.0,  0.0,
+				0.0,  0.01,  0.0,  0.0,  0.0,  0.0,
+				0.0,   0.0, 0.01,  0.0,  0.0,  0.0,
+				0.0,   0.0,  0.0,  0.1,  0.0,  0.0,
+				0.0,   0.0,  0.0,  0.0,  0.1,  0.0,
+				0.0,   0.0,  0.0,  0.0,  0.0,  0.1 };
 
 #if 0
 		printf("motor_odoint L(%d,%d,%f) R=(%d,%d,%f) vx=%f vy=%f vth=%f x=%f y=%f v=(%f,%f,%f) th=%f\n”",
