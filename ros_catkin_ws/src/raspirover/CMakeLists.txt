@@ -134,7 +134,7 @@ include_directories(
 # add_dependencies(raspirover ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Declare a C++ executable
-add_executable(raspirover_node src/raspirovernode.cpp src/VL53L0X.cpp include/raspirovernode.h)
+add_executable(raspirover_node src/VL53L0X.cpp src/pid.cpp src/raspirovernode.cpp)
 
 ## Add cmake target dependencies of the executable
 ## same as for the library above

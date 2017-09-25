@@ -94,7 +94,7 @@ int main(int argc, char **argv)
             imu_msg.orientation.x = imu_data.fusionQPose.x(); 
             imu_msg.orientation.y = imu_data.fusionQPose.y(); 
             imu_msg.orientation.z = imu_data.fusionQPose.z(); 
-            imu_msg.orientation.w = imu_data.fusionQPose.scalar();
+            imu_msg.orientation.w = -imu_data.fusionQPose.scalar();
             //imu_msg.orientation_covariance = { -1,  0, 0, 0, -1, 0, 0, 0, -1  }; // #sensor doesn't have orientation
 
             imu_msg.angular_velocity.x = imu_data.gyro.x();

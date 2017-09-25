@@ -20,6 +20,7 @@
 #include "std_msgs/Byte.h"
 #include "std_msgs/Float32.h"
 #include "std_msgs/UInt8.h"
+#include "std_msgs/Int8.h"
 #include <geometry_msgs/Twist.h>
 #include "raspirovernode.h"
 #include <math.h>
@@ -40,6 +41,7 @@
 #endif
 
 #include "VL53L0X.h"
+#include "pid.h"
 
 #define ENABLE_SONAR_PUB
 #define ENABLE_ODOM_PUB
@@ -54,13 +56,13 @@
 #define GPIO_ODOL  5
 #define GPIO_ODOR  6
 
-#define GPIO_PWML  19
-#define GPIO_IN0L  26
-#define GPIO_IN1L  13
+#define GPIO_PWMR  19
+#define GPIO_IN0R  26
+#define GPIO_IN1R  13
 
-#define GPIO_PWMR  21
-#define GPIO_IN0R  20
-#define GPIO_IN1R  16
+#define GPIO_PWML  21
+#define GPIO_IN0L  20
+#define GPIO_IN1L  16
 
 #define GPIO_TEST1 17
 #define GPIO_TEST2 27
@@ -92,17 +94,26 @@ static struct
 		-0.1,
 		0.1 };
 
-ros::Publisher odom_pub;
+#define MOTOR_L 0
+#define MOTOR_R 1
+struct
+{
+	MiniPID 	pid;
+	double 		setpoint;
+	double  	value;
+	double  	odom_rate;
 
-volatile int odo_0_step = 0;
-volatile int odo_0_cnt = 0;
-volatile int odo_0_cntx = 0;
-volatile int odo_0_pin = 0;
+	int         odom_step;
+	int         odom_cnt;
+} motor_md[2] = {
+		{ MiniPID(0,0,0),
+				0.0, 0.0, 0.0, 0, 0 },
+		{ MiniPID(0,0,0),
+				0.0, 0.0, 0.0, 0, 0 } };
 
-volatile int odo_1_step = 0;
-volatile int odo_1_cnt = 0;
-volatile int odo_1_cntx = 0;
-volatile int odo_1_pin = 0;
+ros::Publisher motor_pub_setpoint[2];
+ros::Publisher motor_pub_value[2];
+ros::Publisher motor_pub_rate[2];
 
 /*
  *
@@ -148,27 +159,27 @@ void motor_ctrl( int gpio_en, int gpio_in0, int gpio_in1 , int vel )
 /*
  *
  */
-void motor( int m, int vel )
+void motor( int m, double vel )
 {
 	switch(m)
 	{
-	case 0:
+	case MOTOR_L:
 		motor_ctrl(GPIO_PWML,GPIO_IN0L,GPIO_IN1L,vel);
-		if( vel > 0 )
-			odo_0_step = 1;
-		else if( vel < 0 )
-			odo_0_step = -1;
+		if( vel > 0.0 )
+			motor_md[MOTOR_L].odom_step = 1;
+		else if( vel < 0.0 )
+			motor_md[MOTOR_L].odom_step = -1;
 		else
-			odo_0_step = 0;
+			motor_md[MOTOR_L].odom_step = 0;
 		break;
-	case 1:
+	case MOTOR_R:
 		motor_ctrl(GPIO_PWMR,GPIO_IN0R,GPIO_IN1R,vel);
-		if( vel > 0 )
-			odo_1_step = 1;
-		else if( vel < 0 )
-			odo_1_step = -1;
+		if( vel > 0.0 )
+			motor_md[MOTOR_R].odom_step = 1;
+		else if( vel < 0.0 )
+			motor_md[MOTOR_R].odom_step = -1;
 		else
-			odo_1_step = 0;
+			motor_md[MOTOR_R].odom_step = 0;
 		break;
 	}
 
@@ -178,24 +189,24 @@ void motor( int m, int vel )
 /*
  *
  */
-void motor_odoint_0(void)
+void motor_odoint_L(void)
 {
+	//printf("motor_odoint_L\n");
 	//digitalWrite (GPIO_TEST2, HIGH);
-	odo_0_cnt += odo_0_step;
-	odo_0_cntx += 1;
-	//printf("motor_odoint_0 %d %d %d %d %d %d\n”",odo_0_step,digitalRead(GPIO_ODOR),odo_0_cntx,odo_0_cnt,odo_1_cntx,odo_1_cnt);
+	motor_md[MOTOR_L].odom_cnt += motor_md[MOTOR_L].odom_step;
+	//printf("motor_odoint_L %d %d %d %d %d %d\n”",odo_0_step,digitalRead(GPIO_ODOR),odo_0_cntx,odo_0_cnt,odo_1_cntx,odo_1_cnt);
 	//digitalWrite (GPIO_TEST2, LOW);
 }
 
 /*
  *
  */
-void motor_odoint_1(void)
+void motor_odoint_R(void)
 {
+	//printf("motor_odoint_R\n");
 	//digitalWrite (GPIO_TEST3, HIGH);
-	odo_1_cnt += odo_1_step;
-	odo_1_cntx += 1;
-	//printf("motor_odoint_1 %d %d %d %d %d %d\n”",odo_1_step,digitalRead(GPIO_ODOR),odo_0_cntx,odo_0_cnt,odo_1_cntx,odo_1_cnt);
+	motor_md[MOTOR_R].odom_cnt += motor_md[MOTOR_R].odom_step;
+	//printf("motor_odoint_R %d %d %d %d %d %d\n”",odo_1_step,digitalRead(GPIO_ODOR),odo_0_cntx,odo_0_cnt,odo_1_cntx,odo_1_cnt);
 	//digitalWrite (GPIO_TEST3, LOW);
 }
 
@@ -250,7 +261,8 @@ void laser_callback(const std_msgs::String& laser_cmd)
 void cmd_vel_callback(const geometry_msgs::Twist& vel_cmd)
 {
 	double x = (double)1.0*vel_cmd.linear.x;
-	double y = (double)1.0*vel_cmd.linear.y;
+	//double y = (double)1.0*vel_cmd.linear.y;
+	double y = (double)1.0*vel_cmd.angular.z;
 	x = (x>1.0)?1.0:((x<-1.0)?-1.0:x);
 	y = (y>1.0)?1.0:((y<-1.0)?-1.0:y);
 	if((fabs(x)+fabs(y))>1.0)
@@ -260,27 +272,69 @@ void cmd_vel_callback(const geometry_msgs::Twist& vel_cmd)
 		y = y/k;
 	}
 
-	int motor_l = (int)(100.0*x)+(100.0*(y));
-	int motor_r = (int)(100.0*x)-(100.0*(y));
+	int motor_r = (int)(100.0*x)+(100.0*(y));
+	int motor_l = (int)(100.0*x)-(100.0*(y));
 
 	ROS_DEBUG("cmd_vel_callback(%f,%f) x=%1.3f y=%1.3f motor-l=%d motor-r=%d",
 			vel_cmd.linear.x,vel_cmd.angular.y,
 			x,y,
 			motor_l,motor_r);
 
-	motor(0,motor_l);
-	motor(1,motor_r);
+	//motor(0,motor_l);
+	//motor(1,motor_r);
+
+	if( motor_l > 0 )
+	{
+		motor_md[MOTOR_L].setpoint = 20.0 + motor_l;
+	}
+	else if( motor_l < 0 )
+	{
+		motor_md[MOTOR_L].setpoint = motor_l - 20.0;
+	}
+	else
+	{
+		motor_md[MOTOR_L].setpoint = 0.0;
+	}
+
+	if( motor_r > 0 )
+	{
+		motor_md[MOTOR_R].setpoint = 20.0 + motor_r;
+	}
+	else if( motor_r < 0 )
+	{
+		motor_md[MOTOR_R].setpoint = motor_r - 20.0;
+	}
+	else
+	{
+		motor_md[MOTOR_R].setpoint = 0.0;
+	}
 }
+
+/**
+ *
+ */
+double pid_kp = 0.0;
+double pid_kd = 0.0;
+double pid_ki = 0.0;
+
+double pid_test_period = 0.0;
+double pid_test_speedA = 0.0;
+double pid_test_speedB = 0.0;
+
+#define XXX (0.1 / 50.0)
 
 /*
  *
  */
 #ifdef ENABLE_ODOM_PUB
+ros::Publisher odom_pub;
+
+#define ODOM_PERIOD 0.1
 void handleODO(tf::TransformBroadcaster& tf_broadcaster)
 {
 	ros::Time current_time = ros::Time::now();
 	double dt = (current_time - odo_last_time).toSec();
-	if(dt>=0.1)
+	if(dt>=ODOM_PERIOD)
 	{
 		/*
 		 * https://answers.ros.org/question/207392/generating-odom-message-from-encoder-ticks-for-robot_pose_ekf/
@@ -298,11 +352,20 @@ void handleODO(tf::TransformBroadcaster& tf_broadcaster)
 		double lengthBetweenTwoWheels = 0.12*1.64/1.03169;
 
 		//extract the wheel velocities from the tick signals count
-		double deltaLeft = odo_1_cnt;
-		double deltaRight = odo_0_cnt;
+		double deltaLeft = motor_md[MOTOR_L].odom_cnt;
+		double deltaRight = motor_md[MOTOR_R].odom_cnt;
 
 		double v_left = (deltaLeft * DistancePerCount) / dt;
 		double v_right = (deltaRight * DistancePerCount) / dt;
+
+		//motor_md[MOTOR_L].odom_rate = v_left;
+		//motor_md[MOTOR_R].odom_rate = v_right;
+
+		motor_md[MOTOR_L].odom_rate = (4.0 * motor_md[MOTOR_L].odom_rate + v_left) / 5.0;
+		motor_md[MOTOR_R].odom_rate = (4.0 * motor_md[MOTOR_R].odom_rate + v_right) / 5.0;
+
+		//motor_md[MOTOR_L].odom_rate = (19.0 * motor_md[MOTOR_L].odom_rate + v_left) / 20.0;
+		//motor_md[MOTOR_R].odom_rate = (19.0 * motor_md[MOTOR_R].odom_rate + v_right) / 20.0;
 
 		double vx = ((v_right + v_left) / 2);
 		double vy = 0;
@@ -318,7 +381,7 @@ void handleODO(tf::TransformBroadcaster& tf_broadcaster)
 		th += delta_th;
 
 		geometry_msgs::Quaternion odom_quat = tf::createQuaternionMsgFromYaw(th);
-
+#if 0
 		geometry_msgs::TransformStamped odom_trans;
 		odom_trans.header.stamp = current_time;
 		odom_trans.header.frame_id = "odom";
@@ -331,6 +394,7 @@ void handleODO(tf::TransformBroadcaster& tf_broadcaster)
 
 		//send the transform
 		tf_broadcaster.sendTransform(odom_trans);
+#endif
 
 		//Odometry message
 		nav_msgs::Odometry odom;
@@ -376,8 +440,8 @@ void handleODO(tf::TransformBroadcaster& tf_broadcaster)
 
 		ROS_DEBUG("handleODO() dt=%f encoder=%d,%d,%d,%d position=%f,%f twist=%f,%f,%f ",
 				dt,
-				odo_0_cnt,odo_0_step,
-				odo_1_cnt,odo_1_step,
+				motor_md[MOTOR_R].odom_cnt,motor_md[MOTOR_R].odom_step,
+				motor_md[MOTOR_L].odom_cnt,motor_md[MOTOR_L].odom_step,
 				x,
 				y,
 				vx,
@@ -389,8 +453,90 @@ void handleODO(tf::TransformBroadcaster& tf_broadcaster)
 
 		odo_last_time = current_time;
 
-		odo_0_cnt = 0;
-		odo_1_cnt = 0;
+		/*
+		 * PID
+		 */
+		if( pid_kp==0.0 && pid_ki==0.0 && pid_kd==0.0 )
+		{
+			motor(MOTOR_L,motor_md[MOTOR_L].setpoint);
+			motor(MOTOR_R,motor_md[MOTOR_R].setpoint);
+		}
+		else
+		{
+			ros::param::get("/raspirover/pid/Kp", pid_kp);
+			ros::param::get("/raspirover/pid/Kd", pid_kd);
+			ros::param::get("/raspirover/pid/Ki", pid_ki);
+
+			motor_md[MOTOR_L].pid.setPID(pid_kp,pid_ki,pid_kd);
+			motor_md[MOTOR_R].pid.setPID(pid_kp,pid_ki,pid_kd);
+
+			ros::param::get("/raspirover/pid_test/period", pid_test_period );
+			ros::param::get("/raspirover/pid_test/speedA", pid_test_speedA );
+			ros::param::get("/raspirover/pid_test/speedB", pid_test_speedB );
+
+			if( pid_test_period != 0.0 )
+			{
+				if( fmod(current_time.toSec(),pid_test_period) < (pid_test_period/2.0) )
+				{
+					motor_md[MOTOR_L].setpoint = pid_test_speedA;
+					motor_md[MOTOR_R].setpoint = pid_test_speedA;
+				}
+				else
+				{
+					motor_md[MOTOR_L].setpoint = pid_test_speedB;
+					motor_md[MOTOR_R].setpoint = pid_test_speedB;
+				}
+			}
+
+			motor_md[MOTOR_L].value = -motor_md[MOTOR_L].pid.getOutput(
+					motor_md[MOTOR_L].setpoint,
+					motor_md[MOTOR_L].odom_rate/XXX);
+			motor(MOTOR_L,motor_md[MOTOR_L].value);
+
+			motor_md[MOTOR_R].value = -motor_md[MOTOR_R].pid.getOutput(
+					motor_md[MOTOR_R].setpoint,
+					motor_md[MOTOR_R].odom_rate/XXX);
+			motor(MOTOR_R,motor_md[MOTOR_R].value);
+
+			printf("motor_handle() L(%d,%d,set=%f,ist=%f,m=%f) R(%d,%d,set=%f,ist=%f,m=%f) pid(%f,%f,%f)\n",
+					motor_md[MOTOR_L].odom_step,
+					motor_md[MOTOR_L].odom_cnt,
+					motor_md[MOTOR_L].setpoint,
+					motor_md[MOTOR_L].odom_rate/XXX,
+					motor_md[MOTOR_L].value,
+					motor_md[MOTOR_R].odom_step,
+					motor_md[MOTOR_R].odom_cnt,
+					motor_md[MOTOR_R].setpoint,
+					motor_md[MOTOR_R].odom_rate/XXX,
+					motor_md[MOTOR_R].value,
+					pid_kp,pid_ki,pid_kd);
+		}
+
+		/*
+		 * publish diagnositic data
+		 */
+		{
+			std_msgs::Float32 msg;
+
+			msg.data = motor_md[MOTOR_L].setpoint;
+			motor_pub_setpoint[MOTOR_L].publish(msg);
+			msg.data = motor_md[MOTOR_R].setpoint;
+			motor_pub_setpoint[MOTOR_R].publish(msg);
+
+			msg.data = motor_md[MOTOR_L].value;
+			motor_pub_value[MOTOR_L].publish(msg);
+			msg.data = motor_md[MOTOR_R].value;
+			motor_pub_value[MOTOR_R].publish(msg);
+
+			msg.data = motor_md[MOTOR_L].odom_rate/XXX;
+			motor_pub_rate[MOTOR_L].publish(msg);
+			msg.data = motor_md[MOTOR_R].odom_rate/XXX;
+			motor_pub_rate[MOTOR_R].publish(msg);
+		}
+
+		motor_md[MOTOR_L].odom_cnt = 0;
+		motor_md[MOTOR_R].odom_cnt = 0;
+
 	}
 }
 #endif
@@ -516,6 +662,10 @@ static int lidar_pwm_step = 1;
 static float lidar_data[lidar_num_readings] = {0.0};
 static int lidar_send_topic = 0;
 
+double lidar_period = 0.05;
+double lidar_angle_min = -65.0;
+double lidar_angle_max = 65.0;
+
 VL53L0X* sensor = NULL;
 
 void handle_lidar_servo()
@@ -524,9 +674,10 @@ void handle_lidar_servo()
 	static ros::Time _time;
 	ros::Time time = ros::Time::now();
 	double dt = (time - _time).toSec();
-	if( dt >= 0.05 )
+	if((dt >= lidar_period)&&(lidar_period != 0.0))
 	{
 		_time = time;
+		//printf("%d %f %f %f\n",lidar_num_readings,lidar_period,lidar_angle_min,lidar_angle_max);
 
 		if( scan_pub.getNumSubscribers() < 2 )
 		{
@@ -548,10 +699,10 @@ void handle_lidar_servo()
 				lidar_scan.intensities.resize(lidar_num_readings);
 				lidar_scan.header.stamp = time;
 				lidar_scan.header.frame_id = "laser_link";
-				lidar_scan.angle_min = -(2.0*3.14 * 80.0/360.0);
-				lidar_scan.angle_max = +(2.0*3.14 * 80.0/360.0);
+				lidar_scan.angle_min = (2.0*3.14 * lidar_angle_min/360.0);
+				lidar_scan.angle_max = (2.0*3.14 * lidar_angle_max/360.0);
 				lidar_scan.angle_increment = (lidar_scan.angle_max-lidar_scan.angle_min) / lidar_num_readings;
-				lidar_scan.time_increment = 0.02;
+				lidar_scan.time_increment = lidar_period;
 				lidar_scan.range_min = 0.0;
 				lidar_scan.range_max = 2.0;
 
@@ -569,6 +720,13 @@ void handle_lidar_servo()
 					}
 				}
 				scan_pub.publish(lidar_scan);
+
+				/*
+				 * sync parameter
+				 */
+				ros::param::get("/raspirover/lidar/period", lidar_period );
+				ros::param::get("/raspirover/lidar/angle_min", lidar_angle_min );
+				ros::param::get("/raspirover/lidar/angle_max", lidar_angle_max );
 			}
 
 			if( lidar_pwm_dir == LIDAR_DIR_UP )
@@ -607,6 +765,9 @@ void handle_lidar_servo()
 void mySigintHandler(int sig)
 {
 	ROS_DEBUG("mySigintHandler ...");
+
+	motor(MOTOR_L,0);
+	motor(MOTOR_R,0);
 
 	pinMode(GPIO_LIDAR_PWM,PWM_OUTPUT);
 	softPwmCreate(GPIO_LIDAR_PWM, lidar_pwm_value, GPIO_LIDAR_PWM_MAX);
@@ -704,13 +865,13 @@ int main(int argc, char **argv)
 	sensor->setTimeout(200);
 
 	// Lower the return signal rate limit (default is 0.25 MCPS)
-	sensor->setSignalRateLimit(0.1);
+	sensor->setSignalRateLimit(0.25);
 	// Increase laser pulse periods (defaults are 14 and 10 PCLKs)
 	sensor->setVcselPulsePeriod(VL53L0X::VcselPeriodPreRange, 18);
 	sensor->setVcselPulsePeriod(VL53L0X::VcselPeriodFinalRange, 14);
 
 	// Reduce timing budget to 20 ms (default is about 33 ms)
-	sensor->setMeasurementTimingBudget(20000);
+	sensor->setMeasurementTimingBudget(33000);
 
 	/*
 	 * enable VL53L0X
@@ -729,23 +890,52 @@ int main(int argc, char **argv)
 
 	pinMode(GPIO_ODOL ,INPUT);
 	pullUpDnControl(GPIO_ODOL ,PUD_UP);
-	wiringPiISR(GPIO_ODOL, INT_EDGE_BOTH, &motor_odoint_0);
+	wiringPiISR(GPIO_ODOL, INT_EDGE_BOTH, &motor_odoint_L);
 
 	pinMode(GPIO_ODOR ,INPUT);
 	pullUpDnControl(GPIO_ODOR ,PUD_UP);
-	wiringPiISR(GPIO_ODOR, INT_EDGE_BOTH, &motor_odoint_1);
+	wiringPiISR(GPIO_ODOR, INT_EDGE_BOTH, &motor_odoint_R);
 
 	pinMode(GPIO_SONAR ,INPUT);
 	wiringPiISR(GPIO_SONAR, INT_EDGE_BOTH, &sonarint);
-#endif    
+#endif
+
+	ros::param::param<double>("/raspirover/pid/Kp", pid_kp, 0.0);
+	ros::param::param<double>("/raspirover/pid/Ki", pid_ki, 0.0);
+	ros::param::param<double>("/raspirover/pid/Kd", pid_kd, 0.0);
+
+	motor_md[MOTOR_L].pid.setOutputLimits(-100.0,100.0);
+	//motor_md[MOTOR_L].pid.setOutputRampRate(10.0);
+	motor_md[MOTOR_L].pid.setPID(pid_kp,pid_ki,pid_kd);
+
+	motor_md[MOTOR_R].pid.setOutputLimits(-100.0,100.0);
+	//motor_md[MOTOR_R].pid.setOutputRampRate(10.0);
+	motor_md[MOTOR_R].pid.setPID(pid_kp,pid_ki,pid_kd);
+
+	ros::param::param<double>("/raspirover/pid_test/period", pid_test_period, 0);
+	ros::param::param<double>("/raspirover/pid_test/speedA", pid_test_speedA, 50);
+	ros::param::param<double>("/raspirover/pid_test/speedB", pid_test_speedB, -50);
+
+	ros::param::param<double>("/raspirover/lidar/period", lidar_period, 0.05);
+	ros::param::param<double>("/raspirover/lidar/angle_min", lidar_angle_min, -65.0);
+	ros::param::param<double>("/raspirover/lidar/angle_max", lidar_angle_max, 65.0);
 
 	ROS_DEBUG("initializing cmd_vel ...");
 	ros::Subscriber sub = node.subscribe("cmd_vel", 10, cmd_vel_callback);
 
+	sonar_pub = node.advertise<sensor_msgs::Range>("sonar", 10);
+
+	motor_pub_setpoint[0] = node.advertise<std_msgs::Float32>("motor_0_setpoint", 2);
+	motor_pub_setpoint[1] = node.advertise<std_msgs::Float32>("motor_1_setpoint", 2);
+	motor_pub_value[0] = node.advertise<std_msgs::Float32>("motor_0_value", 2);
+	motor_pub_value[1] = node.advertise<std_msgs::Float32>("motor_1_value", 2);
+	motor_pub_rate[0] = node.advertise<std_msgs::Float32>("motor_0_rate", 2);
+	motor_pub_rate[1] = node.advertise<std_msgs::Float32>("motor_1_rate", 2);
+
 	sonar_last_time = ros::Time::now();
 #ifdef ENABLE_SONAR_PUB
 	sonar_pub = node.advertise<sensor_msgs::Range>("sonar", 10);
-	scan_pub = node.advertise<sensor_msgs::LaserScan>("scan", 10);
+	scan_pub = node.advertise<sensor_msgs::LaserScan>("scan", 1.0/(1.0 * lidar_num_readings * 0.05));
 #endif
 
 	odo_last_time = ros::Time::now();
@@ -753,25 +943,25 @@ int main(int argc, char **argv)
 	odom_pub = node.advertise<nav_msgs::Odometry>("odom", 10);
 #endif
 
-	ros::Rate loop_rate(100);
+	ros::Rate loop_rate(10);
 	tf::TransformBroadcaster tf_broadcaster;
 	while( node.ok() )
 	{
-		//handle_odoint();
-		//handle_TF(tf_broadcaster);
 		handle_lidar_servo();
 
 #ifdef ENABLE_SONAR_PUB
 		handleSonar();
 #endif
+
 #ifdef ENABLE_ODOM_PUB
 		handleODO(tf_broadcaster);
 #endif
+
 		ros::spinOnce();
 
-		digitalWrite (GPIO_TEST1, HIGH);
+		//digitalWrite (GPIO_TEST1, HIGH);
 		loop_rate.sleep();
-		digitalWrite (GPIO_TEST1, LOW);
+		//digitalWrite (GPIO_TEST1, LOW);
 	}
 
 	return 0;
@@ -780,3 +970,4 @@ int main(int argc, char **argv)
 /*
  * EOF
  */
+
