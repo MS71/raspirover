@@ -1,15 +1,15 @@
+plugins:
+  - {name: sonar_layer,   type: "range_sensor_layer::RangeSensorLayer"}
+  
 obstacle_range: 2.0
 raytrace_range: 2.0
 footprint: [[-0.1, -0.05],[-0.1, 0.05],[0.1, 0.05],[0.1, -0.05]]
 #robot_radius: ir_of_robot
-inflation_radius: 0.20
+inflation_radius: 0.3
 
-observation_sources: laser_scan_sensor 
-#point_cloud_sensor
+observation_sources: laser_scan_sensor sonar_sensor 
 
 laser_scan_sensor: {sensor_frame: laser_link, data_type: LaserScan, topic: /scan, marking: true, clearing: true}
 
-#sonar_sensor: { sensor_frame: sonar_link, data_type: Range, topic: /sonar, marking: true, clearing: true }
-
-#point_cloud_sensor: {sensor_frame: laser_link, data_type: PointCloud, topic: /cloud, marking: true, clearing: true}
+sonar_sensor: { sensor_frame: sonar_link, data_type: Range, topic: /sonar, marking: true, clearing: true }
 

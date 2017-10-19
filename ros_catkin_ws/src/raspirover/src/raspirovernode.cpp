@@ -27,8 +27,10 @@
 #include <sensor_msgs/Range.h>
 #include <sensor_msgs/LaserScan.h>
 #include <signal.h>
+#include <std_srvs/Empty.h>
 
 #include <tf/transform_broadcaster.h>
+#include <tf2_ros/static_transform_broadcaster.h>
 #include <nav_msgs/Odometry.h>
 
 #include <sys/time.h>
@@ -45,6 +47,7 @@
 
 #define ENABLE_SONAR_PUB
 #define ENABLE_ODOM_PUB
+#define ENABLE_SPEPPER_LIDAR
 
 /*
  * some defines
@@ -71,6 +74,13 @@
 #define GPIO_LIDAR_PWM		12
 #define GPIO_LIDAR_GPIO1	24
 #define GPIO_LIDAR_XSHUT	25
+
+#ifdef ENABLE_SPEPPER_LIDAR
+#define GPIO_STEPPER_LIDAR_IN3 7
+#define GPIO_STEPPER_LIDAR_IN2 8
+#define GPIO_STEPPER_LIDAR_IN1 11
+#define GPIO_STEPPER_LIDAR_IN0 9
+#endif
 
 /*
  * global data
@@ -225,16 +235,18 @@ void sonarint(void)
 		int pin = digitalRead(GPIO_SONAR);
 		if( pin != _pin )
 		{
+			_pin = pin;
 			if( pin == 0 )
 			{
-				unsigned long dt = (t-_t).toSec()*1000000.0;
-				t_sonar = ((2*t_sonar)+dt)/3;
+				/*
+				 * measure the HIGH pulse period
+				 */
+				t_sonar = ((4.0*t_sonar)+((t-_t).toSec()*1000000.0))/5.0;
 			}
-			_pin = pin;
+			_t = t;
 		}
 	}
 	first = 0;
-	_t = t;
 	return;
 }
 #endif
@@ -330,7 +342,7 @@ double pid_test_speedB = 0.0;
 ros::Publisher odom_pub;
 
 #define ODOM_PERIOD 0.1
-void handleODO(tf::TransformBroadcaster& tf_broadcaster)
+void handleODO()
 {
 	ros::Time current_time = ros::Time::now();
 	double dt = (current_time - odo_last_time).toSec();
@@ -381,25 +393,30 @@ void handleODO(tf::TransformBroadcaster& tf_broadcaster)
 		th += delta_th;
 
 		geometry_msgs::Quaternion odom_quat = tf::createQuaternionMsgFromYaw(th);
+
 #if 0
-		geometry_msgs::TransformStamped odom_trans;
-		odom_trans.header.stamp = current_time;
-		odom_trans.header.frame_id = "odom";
-		odom_trans.child_frame_id = "base_footprint";
+		{
+			static tf::TransformBroadcaster tf_broadcaster;
 
-		odom_trans.transform.translation.x = x;
-		odom_trans.transform.translation.y = y;
-		odom_trans.transform.translation.z = 0.0;
-		odom_trans.transform.rotation = odom_quat;
+			geometry_msgs::TransformStamped odom_trans;
+			odom_trans.header.stamp = current_time;
+			odom_trans.header.frame_id = "odom";
+			odom_trans.child_frame_id = "base_footprint";
 
-		//send the transform
-		tf_broadcaster.sendTransform(odom_trans);
+			odom_trans.transform.translation.x = x;
+			odom_trans.transform.translation.y = y;
+			odom_trans.transform.translation.z = 0.0;
+			odom_trans.transform.rotation = odom_quat;
+
+			//send the transform
+			tf_broadcaster.sendTransform(odom_trans);
+		}
 #endif
 
 		//Odometry message
 		nav_msgs::Odometry odom;
 		odom.header.stamp = current_time;
-		odom.header.frame_id = "odom";
+		//odom.header.frame_id = "odom";
 
 		//set the position
 		odom.pose.pose.position.x = x;
@@ -415,7 +432,7 @@ void handleODO(tf::TransformBroadcaster& tf_broadcaster)
 				0.0,   0.0,  0.0,  0.0,  0.0,  0.1 };
 
 		//set the velocity
-		odom.child_frame_id = "base_footprint";
+		//odom.child_frame_id = "base_footprint";
 		odom.twist.twist.linear.x = vx;
 		odom.twist.twist.linear.y = vy;
 		odom.twist.twist.angular.z = vth;
@@ -547,7 +564,6 @@ void handleODO(tf::TransformBroadcaster& tf_broadcaster)
 #ifdef ENABLE_SONAR_PUB
 ros::Publisher sonar_pub;
 ros::Publisher scan_pub;
-
 void handleSonar()
 {
 	ros::Time current_time = ros::Time::now();
@@ -555,94 +571,24 @@ void handleSonar()
 	if(dt>=0.05)
 	{
 #ifdef HAVE_WIRINGPI
-		const static float DIST_SCALE = 58.0;
+		sensor_msgs::Range range;
+		range.header.frame_id = "sonar_link";
+		range.radiation_type = sensor_msgs::Range::ULTRASOUND;
+		range.min_range = 0.0;
+		range.max_range = 0.5;
+		range.field_of_view = 30.0/90.0 * 3.14/2.0;
+
+		range.header.stamp = ros::Time::now();
+		double r = 0.01 * t_sonar / 58.2;
+		if( r > range.max_range )
 		{
-
-			sensor_msgs::Range range;
-			range.header.frame_id = "sonar_link";
-			range.radiation_type = sensor_msgs::Range::ULTRASOUND;
-			range.min_range = 0.0;
-			range.max_range = 6;
-			range.field_of_view = 15.0/90.0 * 3.14/2.0;
-
-			range.header.stamp = ros::Time::now();
-			range.range = 0.01 * t_sonar / DIST_SCALE;
-
-			sonar_pub.publish(range);
+			// +Inf represents no detection within the fixed distance. (Object out of range)
+			r = (1.0 / 0.0);
 		}
-#if 0
-		{
-#define num_readings 3
-#define laser_frequency 10
+		range.range = r;
 
-			ros::Time scan_time = ros::Time::now();
-
-			//populate the LaserScan message
-			sensor_msgs::LaserScan scan;
-			scan.header.stamp = scan_time;
-			scan.header.frame_id = "laser_link";
-			scan.angle_min = -(5.0/360.0 * 2.0*3.14);
-			scan.angle_max = +(5.0/360.0 * 2.0*3.14);
-		    scan.angle_increment = (10.0/360.0 * 2.0*3.14) / num_readings;
-			scan.time_increment = (1 / laser_frequency) / (num_readings);
-			scan.range_min = 0.0;
-			scan.range_max = 100.0;
-
-			scan.ranges.resize(num_readings);
-			scan.intensities.resize(num_readings);
-			for(unsigned int i = 0; i < num_readings; i++)
-			{
-				scan.ranges[i] = 0.01 * t_sonar / DIST_SCALE;
-				scan.intensities[i] = 100;
-			}
-
-			scan_pub.publish(scan);
-		}
+		sonar_pub.publish(range);
 #endif
-#endif
-	}
-}
-#endif
-
-#if 0
-void handle_TF(tf::TransformBroadcaster& tf_broadcaster)
-{
-	static ros::Time _time;
-	ros::Time time = ros::Time::now();
-	double dt = (time - _time).toSec();
-	{
-		if( dt >= 0.5 )
-		{
-#if 0
-			<!--
-			<node pkg="tf" type="static_transform_publisher" name="tf_00" args="0 0 0 0 0 0 /map /odom 1"/>
-			<node pkg="tf" type="static_transform_publisher" name="tf_02" args="0 0 0 0 0 0 /base_footprint /base_link 1"/>
-			<node pkg="tf" type="static_transform_publisher" name="tf_03" args="0.04 0.02 0.04 0 0 0 /base_link /imu_link 1"/>
-			<node pkg="tf" type="static_transform_publisher" name="tf_04" args="0.08 0.01 0.04 0 0 0 /base_link /sonar_link 1"/>
-			<node pkg="tf" type="static_transform_publisher" name="tf_05" args="0.08 0.01 0.04 0 0 0 /base_link /laser_link 1"/>
-			<node pkg="tf" type="static_transform_publisher" name="tf_06" args="0.02 0.0 0.08 0 0 0 /base_link /camera_link 1"/>
-			-->
-#endif
-			{
-				geometry_msgs::Quaternion odom_quat = tf::createQuaternionMsgFromYaw(th);
-
-				geometry_msgs::TransformStamped odom_trans;
-				odom_trans.header.stamp = current_time;
-				odom_trans.header.frame_id = "odom";
-				odom_trans.child_frame_id = "base_footprint";
-
-				odom_trans.transform.translation.x = x;
-				odom_trans.transform.translation.y = y;
-				odom_trans.transform.translation.z = 0.0;
-				odom_trans.transform.rotation = odom_quat;
-
-				//send the transform
-				tf_broadcaster.sendTransform(odom_trans);
-			}
-
-
-			_time = time;
-		}
 	}
 }
 #endif
@@ -656,11 +602,13 @@ static enum {
 //#define lidar_pwm_value_max (int)((2.9/10.0)*GPIO_LIDAR_PWM_MAX)
 #define lidar_pwm_value_min (int)((0.50/10.0)*GPIO_LIDAR_PWM_MAX)
 #define lidar_pwm_value_max (int)((2.0/10.0)*GPIO_LIDAR_PWM_MAX)
-static int lidar_pwm_value = lidar_pwm_value_min + (lidar_pwm_value_max-lidar_pwm_value_min)/2;
+static int lidar_pwm_def_value = lidar_pwm_value_min + (lidar_pwm_value_max-lidar_pwm_value_min)/2;
+static int lidar_pwm_value = lidar_pwm_def_value;
 static int lidar_pwm_step = 1;
 #define lidar_num_readings (1 + lidar_pwm_value_max - lidar_pwm_value_min)
 static float lidar_data[lidar_num_readings] = {0.0};
 static int lidar_send_topic = 0;
+static int lidar_wait_countdown = 1;
 
 double lidar_period = 0.05;
 double lidar_angle_min = -65.0;
@@ -671,93 +619,285 @@ VL53L0X* sensor = NULL;
 void handle_lidar_servo()
 {
 #if 1
-	static ros::Time _time;
-	ros::Time time = ros::Time::now();
-	double dt = (time - _time).toSec();
-	if((dt >= lidar_period)&&(lidar_period != 0.0))
+	if( motor_md[MOTOR_L].setpoint != motor_md[MOTOR_R].setpoint != 0.0)
 	{
-		_time = time;
-		//printf("%d %f %f %f\n",lidar_num_readings,lidar_period,lidar_angle_min,lidar_angle_max);
-
-		if( scan_pub.getNumSubscribers() < 2 )
+		/*
+		 * while moving, don't send lidar messages
+		 */
+		if( lidar_pwm_value != lidar_pwm_def_value )
 		{
-			lidar_pwm_value = lidar_pwm_value_min + (lidar_pwm_value_max-lidar_pwm_value_min)/2;
-			lidar_send_topic = 0;
+			lidar_pwm_value = lidar_pwm_def_value;
+			softPwmWrite (GPIO_LIDAR_PWM, lidar_pwm_value);
 		}
-		else
+		lidar_wait_countdown = 1;
+		lidar_send_topic = 0;
+	}
+	else
+#endif
+	{
+		static ros::Time _time;
+		ros::Time time = ros::Time::now();
+		double dt = (time - _time).toSec();
+		if((dt >= lidar_period)&&(lidar_period != 0.0))
 		{
+			_time = time;
+			if( scan_pub.getNumSubscribers() < 2 )
 			{
-				int i = lidar_pwm_value - lidar_pwm_value_min;
-				lidar_data[i] = 0.001 * sensor->readRangeSingleMillimeters();
-			}
-
-			if( lidar_send_topic == 1 )
-			{
+				lidar_pwm_value = lidar_pwm_value_min + (lidar_pwm_value_max-lidar_pwm_value_min)/2;
 				lidar_send_topic = 0;
-				sensor_msgs::LaserScan lidar_scan;
-				lidar_scan.ranges.resize(lidar_num_readings);
-				lidar_scan.intensities.resize(lidar_num_readings);
-				lidar_scan.header.stamp = time;
-				lidar_scan.header.frame_id = "laser_link";
-				lidar_scan.angle_min = (2.0*3.14 * lidar_angle_min/360.0);
-				lidar_scan.angle_max = (2.0*3.14 * lidar_angle_max/360.0);
-				lidar_scan.angle_increment = (lidar_scan.angle_max-lidar_scan.angle_min) / lidar_num_readings;
-				lidar_scan.time_increment = lidar_period;
-				lidar_scan.range_min = 0.0;
-				lidar_scan.range_max = 2.0;
-
-				for( int i=0;i<lidar_num_readings; i++ )
-				{
-					lidar_scan.ranges[i]= lidar_data[i];
-					//lidar_scan.ranges[i]= 0.5;
-					if( lidar_scan.ranges[i] > 2.0 )
-					{
-						lidar_scan.intensities[i] = 0.0;
-					}
-					else
-					{
-						lidar_scan.intensities[i] = 1.0;
-					}
-				}
-				scan_pub.publish(lidar_scan);
-
-				/*
-				 * sync parameter
-				 */
-				ros::param::get("/raspirover/lidar/period", lidar_period );
-				ros::param::get("/raspirover/lidar/angle_min", lidar_angle_min );
-				ros::param::get("/raspirover/lidar/angle_max", lidar_angle_max );
-			}
-
-			if( lidar_pwm_dir == LIDAR_DIR_UP )
-			{
-				lidar_pwm_value += lidar_pwm_step;
-				if( lidar_pwm_value >= lidar_pwm_value_max )
-				{
-					lidar_pwm_value = lidar_pwm_value_max;
-					lidar_pwm_dir = LIDAR_DIR_DOWN;
-					lidar_send_topic = 1;
-				}
 			}
 			else
 			{
-				lidar_pwm_value -= lidar_pwm_step;
-				if( lidar_pwm_value <= lidar_pwm_value_min )
 				{
-					lidar_pwm_value = lidar_pwm_value_min;
-					lidar_pwm_dir = LIDAR_DIR_UP;
-					lidar_send_topic = 1;
+					int i = lidar_pwm_value - lidar_pwm_value_min;
+					lidar_data[i] = 0.001 * sensor->readRangeSingleMillimeters();
+				}
+
+				if( lidar_send_topic == 1 )
+				{
+					lidar_send_topic = 0;
+					sensor_msgs::LaserScan lidar_scan;
+					lidar_scan.ranges.resize(lidar_num_readings);
+					lidar_scan.intensities.resize(lidar_num_readings);
+					lidar_scan.header.stamp = time;
+					lidar_scan.header.frame_id = "laser_link";
+					lidar_scan.angle_min = (2.0*3.14 * lidar_angle_min/360.0);
+					lidar_scan.angle_max = (2.0*3.14 * lidar_angle_max/360.0);
+					lidar_scan.angle_increment = (lidar_scan.angle_max-lidar_scan.angle_min) / lidar_num_readings;
+					lidar_scan.time_increment = lidar_period;
+					lidar_scan.range_min = 0.0;
+					lidar_scan.range_max = 2.0;
+
+					for( int i=0;i<lidar_num_readings; i++ )
+					{
+						lidar_scan.ranges[i]= lidar_data[i];
+						//lidar_scan.ranges[i]= 0.5;
+						if( lidar_scan.ranges[i] > 2.0 )
+						{
+							lidar_scan.intensities[i] = 0.0;
+						}
+						else
+						{
+							lidar_scan.intensities[i] = 1.0;
+						}
+					}
+
+					{
+						if( lidar_wait_countdown > 0 )
+						{
+							lidar_wait_countdown--;
+						}
+
+						if( lidar_wait_countdown == 0 )
+						{
+							scan_pub.publish(lidar_scan);
+						}
+					}
+
+					/*
+					 * sync parameter
+					 */
+					ros::param::get("/raspirover/lidar/period", lidar_period );
+					ros::param::get("/raspirover/lidar/angle_min", lidar_angle_min );
+					ros::param::get("/raspirover/lidar/angle_max", lidar_angle_max );
+				}
+
+				if( lidar_pwm_dir == LIDAR_DIR_UP )
+				{
+					lidar_pwm_value += lidar_pwm_step;
+					if( lidar_pwm_value >= lidar_pwm_value_max )
+					{
+						lidar_pwm_value = lidar_pwm_value_max;
+						lidar_pwm_dir = LIDAR_DIR_DOWN;
+						lidar_send_topic = 1;
+					}
+				}
+				else
+				{
+					lidar_pwm_value -= lidar_pwm_step;
+					if( lidar_pwm_value <= lidar_pwm_value_min )
+					{
+						lidar_pwm_value = lidar_pwm_value_min;
+						lidar_pwm_dir = LIDAR_DIR_UP;
+						lidar_send_topic = 1;
+					}
 				}
 			}
-		}
 
-		/*
-		 * next servo angle ...
-		 */
-		softPwmWrite (GPIO_LIDAR_PWM, lidar_pwm_value) ;
+			/*
+			 * next servo angle ...
+			 */
+			softPwmWrite (GPIO_LIDAR_PWM, lidar_pwm_value) ;
+		}
 	}
-#endif
 }
+
+/**
+ *
+ */
+void handleTF()
+{
+	static tf2_ros::StaticTransformBroadcaster static_broadcaster;
+
+	geometry_msgs::TransformStamped static_transformStamped;
+	tf2::Quaternion quat;
+#if 0
+	// <node pkg="tf" type="static_transform_publisher" name="tf_00" args="0 0 0 0 0 0 /map /odom_combined 100"/>
+	static_transformStamped.header.stamp = ros::Time::now();
+	static_transformStamped.header.frame_id = "/map";
+	static_transformStamped.child_frame_id = "/odom_combined";
+	static_transformStamped.transform.translation.x = 0;
+	static_transformStamped.transform.translation.y = 0;
+	static_transformStamped.transform.translation.z = 0;
+	quat.setRPY(0,0,0);
+	static_transformStamped.transform.rotation.x = quat.x();
+	static_transformStamped.transform.rotation.y = quat.y();
+	static_transformStamped.transform.rotation.z = quat.z();
+	static_transformStamped.transform.rotation.w = quat.w();
+	/* send it ... */
+	static_broadcaster.sendTransform(static_transformStamped);
+#endif
+
+#if 0
+	static_transformStamped.header.stamp = ros::Time::now();
+	static_transformStamped.header.frame_id = "/map";
+	static_transformStamped.child_frame_id = "/odom";
+	static_transformStamped.transform.translation.x = 0;
+	static_transformStamped.transform.translation.y = 0;
+	static_transformStamped.transform.translation.z = 0;
+	quat.setRPY(0,0,0);
+	static_transformStamped.transform.rotation.x = quat.x();
+	static_transformStamped.transform.rotation.y = quat.y();
+	static_transformStamped.transform.rotation.z = quat.z();
+	static_transformStamped.transform.rotation.w = quat.w();
+	/* send it ... */
+	static_broadcaster.sendTransform(static_transformStamped);
+#endif
+
+	//<node pkg="tf" type="static_transform_publisher" name="tf_02" args="0 0 0 0 0 0 /base_footprint /base_link 100"/>
+	static_transformStamped.header.stamp = ros::Time::now();
+	static_transformStamped.header.frame_id = "/base_footprint";
+	static_transformStamped.child_frame_id = "/base_link";
+	static_transformStamped.transform.translation.x = 0;
+	static_transformStamped.transform.translation.y = 0;
+	static_transformStamped.transform.translation.z = 0;
+	quat.setRPY(0,0,0);
+	static_transformStamped.transform.rotation.x = quat.x();
+	static_transformStamped.transform.rotation.y = quat.y();
+	static_transformStamped.transform.rotation.z = quat.z();
+	static_transformStamped.transform.rotation.w = quat.w();
+	/* send it ... */
+	static_broadcaster.sendTransform(static_transformStamped);
+
+	//<node pkg="tf" type="static_transform_publisher" name="tf_03" args="0.04 0.02 0.04 0 0 0 /base_link /imu_link 100"/>
+	static_transformStamped.header.stamp = ros::Time::now();
+	static_transformStamped.header.frame_id = "/base_link";
+	static_transformStamped.child_frame_id = "/imu_link";
+	static_transformStamped.transform.translation.x = 0.04;
+	static_transformStamped.transform.translation.y = 0.02;
+	static_transformStamped.transform.translation.z = 0.04;
+	quat.setRPY(0,0,0);
+	static_transformStamped.transform.rotation.x = quat.x();
+	static_transformStamped.transform.rotation.y = quat.y();
+	static_transformStamped.transform.rotation.z = quat.z();
+	static_transformStamped.transform.rotation.w = quat.w();
+	/* send it ... */
+	static_broadcaster.sendTransform(static_transformStamped);
+
+	//<node pkg="tf" type="static_transform_publisher" name="tf_04" args="0.08 0.01 0.04 0 0 0 /base_link /sonar_link 100"/>
+	static_transformStamped.header.stamp = ros::Time::now();
+	static_transformStamped.header.frame_id = "/base_link";
+	static_transformStamped.child_frame_id = "/sonar_link";
+	static_transformStamped.transform.translation.x = 0.08;
+	static_transformStamped.transform.translation.y = 0.01;
+	static_transformStamped.transform.translation.z = 0.04;
+	quat.setRPY(0,0,0);
+	static_transformStamped.transform.rotation.x = quat.x();
+	static_transformStamped.transform.rotation.y = quat.y();
+	static_transformStamped.transform.rotation.z = quat.z();
+	static_transformStamped.transform.rotation.w = quat.w();
+	/* send it ... */
+	static_broadcaster.sendTransform(static_transformStamped);
+
+	//<node pkg="tf" type="static_transform_publisher" name="tf_05" args="0.00 0.00 0.17 0 0 0 /base_link /laser_link 100"/>
+	static_transformStamped.header.stamp = ros::Time::now();
+	static_transformStamped.header.frame_id = "/base_link";
+	static_transformStamped.child_frame_id = "/laser_link";
+	static_transformStamped.transform.translation.x = 0.0;
+	static_transformStamped.transform.translation.y = 0.0;
+	static_transformStamped.transform.translation.z = 0.17;
+	quat.setRPY(0,0,0);
+	static_transformStamped.transform.rotation.x = quat.x();
+	static_transformStamped.transform.rotation.y = quat.y();
+	static_transformStamped.transform.rotation.z = quat.z();
+	static_transformStamped.transform.rotation.w = quat.w();
+	/* send it ... */
+	static_broadcaster.sendTransform(static_transformStamped);
+
+	//<node pkg="tf" type="static_transform_publisher" name="tf_06" args="0.02 0.0 0.08 0 0 0 /base_link /camera_link 100"/>
+	static_transformStamped.header.stamp = ros::Time::now();
+	static_transformStamped.header.frame_id = "/base_link";
+	static_transformStamped.child_frame_id = "/camera_link";
+	static_transformStamped.transform.translation.x = 0.02;
+	static_transformStamped.transform.translation.y = 0.0;
+	static_transformStamped.transform.translation.z = 0.08;
+	quat.setRPY(0,0,0);
+	static_transformStamped.transform.rotation.x = quat.x();
+	static_transformStamped.transform.rotation.y = quat.y();
+	static_transformStamped.transform.rotation.z = quat.z();
+	static_transformStamped.transform.rotation.w = quat.w();
+	/* send it ... */
+	static_broadcaster.sendTransform(static_transformStamped);
+}
+
+#ifdef ENABLE_SPEPPER_LIDAR
+void handleStepperLIDAR()
+{
+#if 0
+	int num_steps = 4;
+	const uint stepper_seq[4][4] = {
+			{ 1,0,1,0 },
+			{ 1,0,0,1 },
+			{ 0,1,0,1 },
+			{ 0,1,1,0 },
+	};
+#else
+	int num_steps = 8;
+	const uint stepper_seq[8][4] = {
+			{ 0,0,0,1 },
+			{ 0,0,1,1 },
+			{ 0,0,1,0 },
+			{ 0,1,1,0 },
+			{ 0,1,0,0 },
+			{ 1,1,0,0 },
+			{ 1,0,0,0 },
+			{ 1,0,0,1 },
+	};
+#endif
+	static int stepper_pos = 0;
+	const int gpio[4] = {
+			GPIO_STEPPER_LIDAR_IN0,
+			GPIO_STEPPER_LIDAR_IN1,
+			GPIO_STEPPER_LIDAR_IN2,
+			GPIO_STEPPER_LIDAR_IN3
+	};
+
+	for( int m=0; m<4; m++ )
+	{
+		//printf("stepper_pos=%d %d %d\n",stepper_pos,m,stepper_seq[stepper_pos][m]);
+		if( stepper_seq[stepper_pos][m] == 0 )
+		{
+			digitalWrite (gpio[m], LOW);
+		}
+		else
+		{
+			digitalWrite (gpio[m], HIGH);
+		}
+	}
+	stepper_pos++;
+	if( stepper_pos >= num_steps ) stepper_pos=0;
+}
+#endif
 
 /*
  * mySigintHandler
@@ -788,6 +928,13 @@ void mySigintHandler(int sig)
 		sprintf(s,"gpio -g write %d 0",GPIO_IN1R); system(s);
 
 		sprintf(s,"gpio -g write %d 0",GPIO_LASER); system(s);
+
+#ifdef ENABLE_SPEPPER_LIDAR
+		sprintf(s,"gpio -g write %d 0",GPIO_STEPPER_LIDAR_IN0); system(s);
+		sprintf(s,"gpio -g write %d 0",GPIO_STEPPER_LIDAR_IN1); system(s);
+		sprintf(s,"gpio -g write %d 0",GPIO_STEPPER_LIDAR_IN2); system(s);
+		sprintf(s,"gpio -g write %d 0",GPIO_STEPPER_LIDAR_IN3); system(s);
+#endif
 	}
 #endif
 	ROS_DEBUG("mySigintHandler ... done");
@@ -847,6 +994,13 @@ int main(int argc, char **argv)
 		sprintf(s,"gpio export %d out",GPIO_LIDAR_PWM); system(s);
 		sprintf(s,"gpio export %d in",GPIO_LIDAR_GPIO1); system(s);
 		sprintf(s,"gpio export %d out",GPIO_LIDAR_XSHUT); system(s);
+
+#ifdef ENABLE_SPEPPER_LIDAR
+		sprintf(s,"gpio export %d out",GPIO_STEPPER_LIDAR_IN0); system(s);
+		sprintf(s,"gpio export %d out",GPIO_STEPPER_LIDAR_IN1); system(s);
+		sprintf(s,"gpio export %d out",GPIO_STEPPER_LIDAR_IN2); system(s);
+		sprintf(s,"gpio export %d out",GPIO_STEPPER_LIDAR_IN3); system(s);
+#endif
 
 		sprintf(s,"gpio -g write %d 0",GPIO_LASER); system(s);
 	}
@@ -943,22 +1097,46 @@ int main(int argc, char **argv)
 	odom_pub = node.advertise<nav_msgs::Odometry>("odom", 10);
 #endif
 
-	ros::Rate loop_rate(10);
-	tf::TransformBroadcaster tf_broadcaster;
+	handleTF();
+
+	/*
+	 * enable the camera
+	 */
+	{
+		ros::ServiceClient client = node.serviceClient<std_srvs::Empty::Request>("/camera/start_capture");
+		std_srvs::Empty start_capture_srv;
+		client.call(start_capture_srv);
+	}
+
+	//ros::Rate loop_rate(10);
+
+	ros::Rate loop_rate(1000);
 	while( node.ok() )
 	{
+#ifdef ENABLE_SPEPPER_LIDAR
+		handleStepperLIDAR();
+#endif
+		ros::spinOnce();
+		loop_rate.sleep();
+	}
+
+	while( node.ok() )
+	{
+		ros::spinOnce();
+
 		handle_lidar_servo();
 
 #ifdef ENABLE_SONAR_PUB
 		handleSonar();
+		ros::spinOnce();
 #endif
 
 #ifdef ENABLE_ODOM_PUB
-		handleODO(tf_broadcaster);
+		handleODO();
+		ros::spinOnce();
 #endif
 
 		ros::spinOnce();
-
 		//digitalWrite (GPIO_TEST1, HIGH);
 		loop_rate.sleep();
 		//digitalWrite (GPIO_TEST1, LOW);
@@ -966,6 +1144,10 @@ int main(int argc, char **argv)
 
 	return 0;
 }
+
+#if 0
+rostopic pub /robot_0/move_base_simple/goal geometry_msgs/PoseStamped '{ header: { frame_id: "/map" }, pose: { position: { x: -1.0, y: 0 }, orientation: { x: 0, y: 0, z: 0, w: 0 } } }'
+#endif
 
 /*
  * EOF
