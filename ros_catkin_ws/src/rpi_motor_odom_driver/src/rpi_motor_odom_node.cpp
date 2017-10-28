@@ -40,6 +40,7 @@
 ros::Publisher motor_pub_setpoint[2];
 ros::Publisher motor_pub_value[2];
 ros::Publisher motor_pub_rate[2];
+ros::Publisher motor_pub_odomcnt[2];
 ros::Publisher odom_pub;
 
 /*
@@ -79,28 +80,32 @@ struct _motor_md_
 
 	int         odom_step;
 	int         odom_cnt;
+	int         odom_cnt_forever;
 } motor_md[2] = {
-		{ MiniPID(0,0,0),
-				0.0, 0.0, 0.0, 0, 0 },
-				{ MiniPID(0,0,0),
-						0.0, 0.0, 0.0, 0, 0 } };
+		{ MiniPID(0,0,0),0.0, 0.0, 0.0, 0, 0, 0 },
+		{ MiniPID(0,0,0),0.0, 0.0, 0.0, 0, 0, 0 } };
 
 /*
  * ROS parameter
  */
+bool param_updateparam = false;
 double pid_kp = 0.0;
 double pid_kd = 0.0;
 double pid_ki = 0.0;
+double pid_of = 0.0;
 
-double pid_test_period = 0.0;
-double pid_test_speedA = 0.0;
-double pid_test_speedB = 0.0;
+double param_distancepercount = 0.0;
+double param_widthbetweenwheels = 0.0;
+
+double param_pid_test_period = 0.0;
+double param_pid_test_speedA = 0.0;
+double param_pid_test_speedB = 0.0;
 
 /*
  * GPIO pins
  */
-int gpio_odol = 5;		// ODOM input left
-int gpio_odor = 6;		// ODOM input right
+int gpio_odol = 6;		// ODOM input left
+int gpio_odor = 5;		// ODOM input right
 
 int gpio_pwmr = 19;		// motor PWM output right
 int gpio_in0r = 26;		// motor IN0 output right
@@ -179,6 +184,7 @@ void motor( int m, double vel )
 void motor_odoint_L(void)
 {
 	motor_md[MOTOR_L].odom_cnt += motor_md[MOTOR_L].odom_step;
+	motor_md[MOTOR_L].odom_cnt_forever += motor_md[MOTOR_L].odom_step;
 }
 
 /*
@@ -187,6 +193,7 @@ void motor_odoint_L(void)
 void motor_odoint_R(void)
 {
 	motor_md[MOTOR_R].odom_cnt += motor_md[MOTOR_R].odom_step;
+	motor_md[MOTOR_R].odom_cnt_forever += motor_md[MOTOR_R].odom_step;
 }
 
 /*
@@ -244,7 +251,7 @@ void cmd_vel_callback(const geometry_msgs::Twist& vel_cmd)
 /*
  * ODOM handler function
  */
-void handleODOM()
+void handleODOM(ros::NodeHandle& node)
 {
 	double XXX = (0.1 / 50.0);
 
@@ -264,8 +271,8 @@ void handleODOM()
 		 * 230 pulse auf 0.95m
 		 */
 		//double DistancePerCount = 50.0/12.0 * 0.6/17.0;
-		double DistancePerCount = 0.95/230.0;
-		double lengthBetweenTwoWheels = 0.12*1.64/1.03169;
+		double DistancePerCount = param_distancepercount;
+		double lengthBetweenTwoWheels = param_widthbetweenwheels;
 
 		//extract the wheel velocities from the tick signals count
 		double deltaLeft = motor_md[MOTOR_L].odom_cnt;
@@ -298,7 +305,7 @@ void handleODOM()
 
 		geometry_msgs::Quaternion odom_quat = tf::createQuaternionMsgFromYaw(th);
 
-#if 0
+#if 1
 		{
 			static tf::TransformBroadcaster tf_broadcaster;
 
@@ -374,52 +381,58 @@ void handleODOM()
 
 		odo_last_time = current_time;
 
-		/*
-		 * PID
-		 */
 		if( pid_kp==0.0 && pid_ki==0.0 && pid_kd==0.0 )
 		{
+			/*
+			 * no PID mode
+			 */
+			if( param_pid_test_period != 0.0 )
+			{
+				if( fmod(current_time.toSec(),param_pid_test_period) < (param_pid_test_period/2.0) )
+				{
+					motor_md[MOTOR_L].setpoint = param_pid_test_speedA;
+					motor_md[MOTOR_R].setpoint = param_pid_test_speedA;
+				}
+				else
+				{
+					motor_md[MOTOR_L].setpoint = param_pid_test_speedB;
+					motor_md[MOTOR_R].setpoint = param_pid_test_speedB;
+				}
+			}
+
 			motor(MOTOR_L,motor_md[MOTOR_L].setpoint);
 			motor(MOTOR_R,motor_md[MOTOR_R].setpoint);
 		}
 		else
 		{
-			ros::param::get("/raspirover/pid/Kp", pid_kp);
-			ros::param::get("/raspirover/pid/Kd", pid_kd);
-			ros::param::get("/raspirover/pid/Ki", pid_ki);
-
-			motor_md[MOTOR_L].pid.setPID(pid_kp,pid_ki,pid_kd);
-			motor_md[MOTOR_R].pid.setPID(pid_kp,pid_ki,pid_kd);
-
-			ros::param::get("/raspirover/pid_test/period", pid_test_period );
-			ros::param::get("/raspirover/pid_test/speedA", pid_test_speedA );
-			ros::param::get("/raspirover/pid_test/speedB", pid_test_speedB );
-
-			if( pid_test_period != 0.0 )
+			/*
+			 * PID mode
+			 */
+			if( param_pid_test_period != 0.0 )
 			{
-				if( fmod(current_time.toSec(),pid_test_period) < (pid_test_period/2.0) )
+				if( fmod(current_time.toSec(),param_pid_test_period) < (param_pid_test_period/2.0) )
 				{
-					motor_md[MOTOR_L].setpoint = pid_test_speedA;
-					motor_md[MOTOR_R].setpoint = pid_test_speedA;
+					motor_md[MOTOR_L].setpoint = param_pid_test_speedA;
+					motor_md[MOTOR_R].setpoint = param_pid_test_speedA;
 				}
 				else
 				{
-					motor_md[MOTOR_L].setpoint = pid_test_speedB;
-					motor_md[MOTOR_R].setpoint = pid_test_speedB;
+					motor_md[MOTOR_L].setpoint = param_pid_test_speedB;
+					motor_md[MOTOR_R].setpoint = param_pid_test_speedB;
 				}
 			}
 
-			motor_md[MOTOR_L].value = -motor_md[MOTOR_L].pid.getOutput(
+			motor_md[MOTOR_L].value = motor_md[MOTOR_L].pid.getOutput(
 					motor_md[MOTOR_L].setpoint,
 					motor_md[MOTOR_L].odom_rate/XXX);
 			motor(MOTOR_L,motor_md[MOTOR_L].value);
 
-			motor_md[MOTOR_R].value = -motor_md[MOTOR_R].pid.getOutput(
+			motor_md[MOTOR_R].value = motor_md[MOTOR_R].pid.getOutput(
 					motor_md[MOTOR_R].setpoint,
 					motor_md[MOTOR_R].odom_rate/XXX);
 			motor(MOTOR_R,motor_md[MOTOR_R].value);
 
-			printf("motor_handle() L(%d,%d,set=%f,ist=%f,m=%f) R(%d,%d,set=%f,ist=%f,m=%f) pid(%f,%f,%f)\n",
+			printf("motor_handle() L(%d,%d,set=%f,ist=%f,m=%f) R(%d,%d,set=%f,ist=%f,m=%f) pid(%f,%f,%f,%f)\n",
 					motor_md[MOTOR_L].odom_step,
 					motor_md[MOTOR_L].odom_cnt,
 					motor_md[MOTOR_L].setpoint,
@@ -430,7 +443,7 @@ void handleODOM()
 					motor_md[MOTOR_R].setpoint,
 					motor_md[MOTOR_R].odom_rate/XXX,
 					motor_md[MOTOR_R].value,
-					pid_kp,pid_ki,pid_kd);
+					pid_kp,pid_ki,pid_kd,pid_of);
 		}
 
 		/*
@@ -453,6 +466,12 @@ void handleODOM()
 			motor_pub_rate[MOTOR_L].publish(msg);
 			msg.data = motor_md[MOTOR_R].odom_rate/XXX;
 			motor_pub_rate[MOTOR_R].publish(msg);
+
+			msg.data = motor_md[MOTOR_L].odom_cnt_forever;
+			motor_pub_odomcnt[MOTOR_L].publish(msg);
+			msg.data = motor_md[MOTOR_R].odom_cnt_forever;
+			motor_pub_odomcnt[MOTOR_R].publish(msg);
+
 		}
 
 		motor_md[MOTOR_L].odom_cnt = 0;
@@ -510,7 +529,7 @@ int main(int argc, char **argv)
 	 * You must call one of the versions of ros::init() before using any other
 	 * part of the ROS system.
 	 */
-	ros::init(argc, argv, "rpi_motor_odom_driver" , ros::init_options::NoSigintHandler);
+	ros::init(argc, argv, "rpi_motor_odom_driver_node" , ros::init_options::NoSigintHandler);
 
 	/*
 	 * install SIGINT handler
@@ -522,7 +541,7 @@ int main(int argc, char **argv)
 	 * The first NodeHandle constructed will fully initialize this node, and the last
 	 * NodeHandle destructed will close down the node.
 	 */
-	ros::NodeHandle node;
+	ros::NodeHandle node("rpi_motor_odom_driver_node");
 
 	{
 		char s[256];
@@ -557,17 +576,20 @@ int main(int argc, char **argv)
 	pwmSetRange(1024);
 	pwmSetClock(100);
 
+	node.getParam("odom/distancepercount", param_distancepercount);
+	node.getParam("odom/widthbetweenwheels", param_widthbetweenwheels);
+
 	/*
 	 * motor GPIO params
 	 */
-	ros::param::param<int>("/rpi_motor_odom_driver/gpio_in_odol", gpio_odol, gpio_odol);
-	ros::param::param<int>("/rpi_motor_odom_driver/gpio_in_odor", gpio_odor, gpio_odor);
-	ros::param::param<int>("/rpi_motor_odom_driver/gpio_out_pwml", gpio_pwml, gpio_pwml);
-	ros::param::param<int>("/rpi_motor_odom_driver/gpio_out_in0l", gpio_in0l, gpio_in0l);
-	ros::param::param<int>("/rpi_motor_odom_driver/gpio_out_in1l", gpio_in1l, gpio_in1l);
-	ros::param::param<int>("/rpi_motor_odom_driver/gpio_out_pwmr", gpio_pwmr, gpio_pwmr);
-	ros::param::param<int>("/rpi_motor_odom_driver/gpio_out_in0r", gpio_in0r, gpio_in0r);
-	ros::param::param<int>("/rpi_motor_odom_driver/gpio_out_in1r", gpio_in1r, gpio_in1r);
+	node.getParam("gpio/gpio_in_odol", gpio_odol);
+	node.getParam("gpio/gpio_in_odor", gpio_odor);
+	node.getParam("gpio/gpio_out_pwml", gpio_pwml);
+	node.getParam("gpio/gpio_out_in0l", gpio_in0l);
+	node.getParam("gpio/gpio_out_in1l", gpio_in1l);
+	node.getParam("gpio/gpio_out_pwmr", gpio_pwmr);
+	node.getParam("gpio/gpio_out_in0r", gpio_in0r);
+	node.getParam("gpio/gpio_out_in1r", gpio_in1r);
 
 	/*
 	 * motor PWM wiringPI configuration
@@ -598,27 +620,38 @@ int main(int argc, char **argv)
 		wiringPiISR(gpio_odor, INT_EDGE_BOTH, &motor_odoint_R);
 	}
 
+
+	/*
+	 * global update param flag
+	 */
+	node.getParam("updateparam", param_updateparam);
+
 	/*
 	 * motor PID parameter
 	 */
-	ros::param::param<double>("/raspirover/pid/Kp", pid_kp, 0.0);
-	ros::param::param<double>("/raspirover/pid/Ki", pid_ki, 0.0);
-	ros::param::param<double>("/raspirover/pid/Kd", pid_kd, 0.0);
+	node.getParam("pid/Kp", pid_kp);
+	node.getParam("pid/Ki", pid_ki);
+	node.getParam("pid/Kd", pid_kd);
+	node.getParam("pid/of", pid_of);
 
 	motor_md[MOTOR_L].pid.setOutputLimits(-100.0,100.0);
 	//motor_md[MOTOR_L].pid.setOutputRampRate(10.0);
 	motor_md[MOTOR_L].pid.setPID(pid_kp,pid_ki,pid_kd);
+	if( pid_of != 0.0 )
+	{
+		motor_md[MOTOR_L].pid.setOutputFilter(pid_of);
+	}
+	motor_md[MOTOR_L].pid.setDirection(true);
+
 
 	motor_md[MOTOR_R].pid.setOutputLimits(-100.0,100.0);
 	//motor_md[MOTOR_R].pid.setOutputRampRate(10.0);
 	motor_md[MOTOR_R].pid.setPID(pid_kp,pid_ki,pid_kd);
-
-	/*
-	 * motor diagnostic
-	 */
-	ros::param::param<double>("/raspirover/pid_test/period", pid_test_period, 0);
-	ros::param::param<double>("/raspirover/pid_test/speedA", pid_test_speedA, 50);
-	ros::param::param<double>("/raspirover/pid_test/speedB", pid_test_speedB, -50);
+	if( pid_of != 0.0 )
+	{
+		motor_md[MOTOR_R].pid.setOutputFilter(pid_of);
+	}
+	motor_md[MOTOR_R].pid.setDirection(true);
 
 	/*
 	 * initialize motor subscriber ...
@@ -628,12 +661,14 @@ int main(int argc, char **argv)
 	/*
 	 * initialize motor publisher ...
 	 */
-	motor_pub_setpoint[0] = node.advertise<std_msgs::Float32>("motor_0_setpoint", 2);
-	motor_pub_setpoint[1] = node.advertise<std_msgs::Float32>("motor_1_setpoint", 2);
-	motor_pub_value[0] = node.advertise<std_msgs::Float32>("motor_0_value", 2);
-	motor_pub_value[1] = node.advertise<std_msgs::Float32>("motor_1_value", 2);
-	motor_pub_rate[0] = node.advertise<std_msgs::Float32>("motor_0_rate", 2);
-	motor_pub_rate[1] = node.advertise<std_msgs::Float32>("motor_1_rate", 2);
+	motor_pub_setpoint[MOTOR_L] = node.advertise<std_msgs::Float32>("motor/L/setpoint", 2);
+	motor_pub_setpoint[MOTOR_R] = node.advertise<std_msgs::Float32>("motor/R/setpoint", 2);
+	motor_pub_value[MOTOR_L] = node.advertise<std_msgs::Float32>("motor/L/value", 2);
+	motor_pub_value[MOTOR_R] = node.advertise<std_msgs::Float32>("motor/R/value", 2);
+	motor_pub_rate[MOTOR_L] = node.advertise<std_msgs::Float32>("motor/L/rate", 2);
+	motor_pub_rate[MOTOR_R] = node.advertise<std_msgs::Float32>("motor/R/rate", 2);
+	motor_pub_odomcnt[MOTOR_L] = node.advertise<std_msgs::Float32>("motor/L/odomcnt", 2);
+	motor_pub_odomcnt[MOTOR_R] = node.advertise<std_msgs::Float32>("motor/R/odomcnt", 2);
 
 	/*
 	 * initialize odom publisher ...
@@ -644,7 +679,34 @@ int main(int argc, char **argv)
 	ros::Rate loop_rate(1/ODOM_PERIOD);
 	while( node.ok() )
 	{
-		handleODOM();
+		handleODOM(node);
+
+		if( param_updateparam==true )
+		{
+			node.getParam("updateparam", param_updateparam);
+
+			node.getParam("odom/distancepercount", param_distancepercount);
+			node.getParam("odom/widthbetweenwheels", param_widthbetweenwheels);
+
+			node.getParam("pid/Kp", pid_kp);
+			node.getParam("pid/Ki", pid_ki);
+			node.getParam("pid/Kd", pid_kd);
+			node.getParam("pid/of", pid_of);
+			motor_md[MOTOR_L].pid.setPID(pid_kp,pid_ki,pid_kd);
+			if( pid_of != 0.0 )
+			{
+				motor_md[MOTOR_L].pid.setOutputFilter(pid_of);
+			}
+			motor_md[MOTOR_R].pid.setPID(pid_kp,pid_ki,pid_kd);
+			if( pid_of != 0.0 )
+			{
+				motor_md[MOTOR_R].pid.setOutputFilter(pid_of);
+			}
+
+			node.getParam("pid_test/period", param_pid_test_period);
+			node.getParam("pid_test/speedA", param_pid_test_speedA);
+			node.getParam("pid_test/speedB", param_pid_test_speedB);
+		}
 
 		ros::spinOnce();
 		loop_rate.sleep();

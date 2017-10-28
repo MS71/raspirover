@@ -1,11 +1,29 @@
 <launch>
 
   <node pkg="rpi_motor_odom_driver" type="rpi_motor_odom_driver_node" name="rpi_motor_odom_driver_node" output="screen" >
+    <param name="updateparam" value="false"/>
+    <param name="odom/distancepercount" value="0.0002512"/>
+    <param name="odom/widthbetweenwheels" value="0.190755"/>
+    <param name="pid_test/period" value="0"/>
+    <param name="pid_test/speedA" value="20"/>
+    <param name="pid_test/speedB" value="-20"/>  
+    <param name="pid/Kp" value="0.0"/> 
+    <param name="pid/Ki" value="0.0"/>
+    <param name="pid/Kd" value="0.0"/>
+    <remap from="/rpi_motor_odom_driver_node/cmd_vel" to="/cmd_vel"/>       
   </node>
   
   <node pkg="rpi_servo_vl53lx_lidar_driver" type="rpi_servo_vl53lx_lidar_driver_node" name="rpi_servo_vl53lx_lidar_driver_node" output="screen" >
+    <param name="updateparam" value="false"/>
+    <param name="lidar_period" value="0.05"/>
+    <param name="lidar_angle_min" value="-65.0"/>
+    <param name="lidar_angle_max" value="65.0"/>
+    <param name="gpio_in_gpio1" value="24"/>
+    <param name="gpio_lidar_pwm" value="12"/>
+    <param name="gpio_lidar_xshut" value="25"/>
+    <remap from="/rpi_servo_vl53lx_lidar_driver_node/scan" to="/scan"/>       
   </node>
-  
+
   <node pkg="rpi_sonar_driver" type="rpi_sonar_driver_node" name="rpi_sonar_driver_node" output="screen" >
   </node>
 
