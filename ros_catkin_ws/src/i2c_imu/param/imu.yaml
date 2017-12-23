@@ -1,0 +1,28 @@
+imu_type: 7
+imu_frame: imu_link
+i2c_bus: 1
+i2c_slave_address: 105
+fusion_type: 2
+axis_rotation: 24  
+
+mpu9150:
+  #Sample Rates
+  compass_sample_rate: 25
+  gyro_accel_sample_rate: 50
+  
+  #Accel
+  accel_low_pass_filter: 4
+  accel_full_scale_range: 16
+  
+  #Gyro
+  gyro_low_pass_filter: 3
+  gyro_full_scale_range: 16
+
+#Calibration
+calib:
+  compass_min: [-118.653038, -56.271706, -34.021255]
+  compass_max: [-17.431261, 42.886448, 70.966148]
+  
+  accel_min: [ -0.969848, -1.185465, -1.024881 ]
+  accel_max: [ 1.283709, 1.122947, 1.147939 ]
+             

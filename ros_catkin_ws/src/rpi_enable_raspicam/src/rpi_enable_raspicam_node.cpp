@@ -74,7 +74,10 @@ int main(int argc, char **argv)
 
 	ros::ServiceClient client = node.serviceClient<std_srvs::Empty::Request>("/camera/start_capture");
 	std_srvs::Empty start_capture_srv;
-	client.call(start_capture_srv);
+	while(client.call(start_capture_srv) == false)
+	{
+		ros::Duration(1.0).sleep();
+	}
 
 	ros::Rate loop_rate(1);
 	while( node.ok() )

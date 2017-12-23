@@ -4,7 +4,7 @@
     <param name="updateparam" value="true"/>
     <param name="odom/distancepercount" value="0.0002512"/>
     <param name="odom/widthbetweenwheels" value="0.208"/>
-    <param name="pid_test/period" value="0"/>
+    <param name="pid_test/period" value="10"/>
     <param name="pid_test/speedA" value="20"/>
     <param name="pid_test/speedB" value="-20"/>  
     <param name="pid/Kp" value="0.0"/> 
@@ -55,7 +55,7 @@
  
   <include file="$(find rosbridge_server)/launch/rosbridge_websocket.launch"/>  
    
-   <node pkg="gmapping" type="slam_gmapping" name="slam_gmapping">
+   <!--node pkg="gmapping" type="slam_gmapping" name="slam_gmapping">
     <param name="scan" value="scan"/>
     <param name="map_update_interval" value="0.1"/>
     <param name="linearUpdate" value="0.1"/>
@@ -75,7 +75,7 @@
 	<param name="stt" value="0.0"/>
 	<param name="particles" value="1"/>
 	
-   </node> 
+   </node--> 
 
    <node pkg="robot_pose_ekf" type="robot_pose_ekf" name="robot_pose_ekf">
     <param name="output_frame" value="odom"/>
@@ -90,7 +90,7 @@
     <remap from="/odom" to="/rpi_motor_odom_driver_node/odom"/>
   </node>
 
-  <node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen">
+  <!--node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen">
     <param name="controller_frequency" value="30"/>  
     <rosparam file="$(find raspirover)/config/costmap_common_params.yaml" command="load" ns="global_costmap" />
     <rosparam file="$(find raspirover)/config/costmap_common_params.yaml" command="load" ns="local_costmap" />
@@ -98,7 +98,7 @@
     <rosparam file="$(find raspirover)/config/global_costmap_params.yaml" command="load" />
     <rosparam file="$(find raspirover)/config/base_local_planner_params.yaml" command="load" />
     <remap from="/odom" to="/rpi_motor_odom_driver_node/odom"/>
-  </node>
+  </node-->
  
  <!--
  <node pkg="joy" type="joy_node" name="joy_node" />

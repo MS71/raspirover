@@ -1,7 +1,7 @@
 <launch>
 
   <node pkg="rpi_motor_odom_driver" type="rpi_motor_odom_driver_node" name="rpi_motor_odom_driver_node" output="screen" >
-    <param name="updateparam" value="true"/>
+    <param name="updateparam" value="false"/>
     <param name="odom/distancepercount" value="0.0002512"/>
     <param name="odom/widthbetweenwheels" value="0.208"/>
     <param name="pid_test/period" value="0"/>
@@ -11,17 +11,14 @@
     <param name="pid/Ki" value="0.0"/>
     <param name="pid/Kd" value="0.0"/>
     <remap from="/rpi_motor_odom_driver_node/cmd_vel" to="/cmd_vel"/>
-    <!--remap from="/rpi_motor_odom_driver_node/odom" to="/odom"/-->
+    <remap from="/rpi_motor_odom_driver_node/odom" to="/odom"/>
   </node>
   
-  <node pkg="rpi_servo_vl53lx_lidar_driver" type="rpi_servo_vl53lx_lidar_driver_node" name="rpi_servo_vl53lx_lidar_driver_node" output="screen" >
+  <node pkg="rpi_stepper_vl53lx_lidar_driver" type="rpi_stepper_vl53lx_lidar_driver_node" name="rpi_stepper_vl53lx_lidar_driver_node" output="screen" >
     <param name="updateparam" value="false"/>
     <param name="lidar_period" value="0.05"/>
     <param name="lidar_angle_min" value="-65.0"/>
     <param name="lidar_angle_max" value="65.0"/>
-    <param name="gpio_in_gpio1" value="24"/>
-    <param name="gpio_lidar_pwm" value="12"/>
-    <param name="gpio_lidar_xshut" value="25"/>
     <remap from="/rpi_servo_vl53lx_lidar_driver_node/scan" to="/scan"/>       
   </node>
 
@@ -46,20 +43,25 @@
   <node pkg="rpi_enable_raspicam" type="rpi_enable_raspicam_node" name="rpi_enable_raspicam_node" output="screen" >
   </node>
   
-  <node pkg="rtimulib_ros" type="rtimulib_ros" name="rtimulib_node" output="screen">
+  <!--node pkg="rtimulib_ros" type="rtimulib_ros" name="rtimulib_node" output="screen">
     <param name="calibration_file_path" value="$(find rtimulib_ros)/config"/>
     <param name="calibration_file_name" value="RTIMULib" />
     <param name="frame_id" value="imu_link"/>
     <remap from="/rtimulib_node/imu" to="/imu"/>
-  </node>
- 
+  </node-->
+  
+  <node pkg="i2c_imu" type="i2c_imu_node" name="i2c_imu" output="screen" >
+	<rosparam file="$(find i2c_imu)/param/imu.yaml"/>		
+    <remap from="data" to="/imu"/>
+  </node>         
+  
   <include file="$(find rosbridge_server)/launch/rosbridge_websocket.launch"/>  
    
    <node pkg="gmapping" type="slam_gmapping" name="slam_gmapping">
     <param name="scan" value="scan"/>
-    <param name="map_update_interval" value="0.1"/>
-    <param name="linearUpdate" value="0.1"/>
-    <param name="angularUpdate" value="0.1"/>        
+    <param name="map_update_interval" value="1.0"/>
+    <param name="linearUpdate" value="1.0"/>
+    <param name="angularUpdate" value="1.0"/>        
     <param name="maxUrange" value="1"/>
     <param name="maxRange" value="2"/>    
     <param name="iterations" value="1"/>
@@ -67,28 +69,28 @@
     <param name="particles" value="5"/>    
     <param name="minimumScore" value="50"/>
     <param name="odom_frame" value="odom"/>
-    <remap from="/odom" to="/robot_pose_ekf/odom_combined"/>
+    <!--remap from="/odom" to="/robot_pose_ekf/odom_combined"/-->
     
-    <param name="srr" value="0.0"/>
+    <param name="srr" value="0.0"/> 
 	<param name="srt" value="0.0"/>
-	<param name="str" value="0.0"/>
+	<param name="str" value="0.0"/> 
 	<param name="stt" value="0.0"/>
 	<param name="particles" value="1"/>
 	
    </node> 
 
-   <node pkg="robot_pose_ekf" type="robot_pose_ekf" name="robot_pose_ekf">
+   <!--node pkg="robot_pose_ekf" type="robot_pose_ekf" name="robot_pose_ekf">
     <param name="output_frame" value="odom"/>
     <param name="freq" value="30.0"/>
     <param name="sensor_timeout" value="1.0"/>
     <param name="odom_used" value="true"/>
     <param name="imu_used" value="true"/>
     <param name="vo_used" value="false"/>
-    <param name="debug" value="true"/>
-    <param name="self_diagnose" value="true"/>
+    <param name="debug" value="false"/>
+    <param name="self_diagnose" value="false"/>
     <remap from="/imu_data" to="/imu"/>
     <remap from="/odom" to="/rpi_motor_odom_driver_node/odom"/>
-  </node>
+  </node-->
 
   <node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen">
     <param name="controller_frequency" value="30"/>  
@@ -97,7 +99,7 @@
     <rosparam file="$(find raspirover)/config/local_costmap_params.yaml" command="load" />
     <rosparam file="$(find raspirover)/config/global_costmap_params.yaml" command="load" />
     <rosparam file="$(find raspirover)/config/base_local_planner_params.yaml" command="load" />
-    <remap from="/odom" to="/rpi_motor_odom_driver_node/odom"/>
+    <!--remap from="/odom" to="/rpi_motor_odom_driver_node/odom"/-->
   </node>
  
  <!--
@@ -109,4 +111,5 @@
   <node pkg="joy_teleop" type="joy_teleop.py" name="joy_teleop">
   </node>
   -->
+  
 </launch>

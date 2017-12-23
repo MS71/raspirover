@@ -3,7 +3,7 @@
   <node pkg="rpi_motor_odom_driver" type="rpi_motor_odom_driver_node" name="rpi_motor_odom_driver_node" output="screen" >
     <param name="updateparam" value="false"/>
     <param name="odom/distancepercount" value="0.0002512"/>
-    <param name="odom/widthbetweenwheels" value="0.190755"/>
+    <param name="odom/widthbetweenwheels" value="0.11"/>
     <param name="pid_test/period" value="0"/>
     <param name="pid_test/speedA" value="20"/>
     <param name="pid_test/speedB" value="-20"/>  

@@ -10,7 +10,7 @@ teleop:
         scale: 0.5
       -
         axis: 0
-        target: linear.y
+        target: angular.z
         scale: 0.5
 
   laser_on:

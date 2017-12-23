@@ -32,7 +32,7 @@
 #define MOTOR_L 0
 #define MOTOR_R 1
 
-#define ODOM_PERIOD 0.1
+#define ODOM_PERIOD 0.05
 
 /*
  * publisher
@@ -181,8 +181,10 @@ void motor( int m, double vel )
 /*
  * ODOM interrupt for left motor
  */
+//int motor_odoint_L_cnt = 0;
 void motor_odoint_L(void)
 {
+	//printf("motor_odoint_L %d\n",motor_odoint_L_cnt++);
 	motor_md[MOTOR_L].odom_cnt += motor_md[MOTOR_L].odom_step;
 	motor_md[MOTOR_L].odom_cnt_forever += motor_md[MOTOR_L].odom_step;
 }
@@ -190,8 +192,10 @@ void motor_odoint_L(void)
 /*
  * ODOM interrupt for right motor
  */
+//int motor_odoint_R_cnt = 0;
 void motor_odoint_R(void)
 {
+	//printf("motor_odoint_R %d\n",motor_odoint_R_cnt++);
 	motor_md[MOTOR_R].odom_cnt += motor_md[MOTOR_R].odom_step;
 	motor_md[MOTOR_R].odom_cnt_forever += motor_md[MOTOR_R].odom_step;
 }
@@ -334,13 +338,15 @@ void handleODOM(ros::NodeHandle& node)
 		odom.pose.pose.position.y = y;
 		odom.pose.pose.position.z = 0.0;
 		odom.pose.pose.orientation = odom_quat;
+		double max = 1000000000000.0;
+		double min = 0.001;
 		odom.pose.covariance = {
-				0.01,  0.0,  0.0,  0.0,  0.0,  0.0,
-				0.0,  0.01,  0.0,  0.0,  0.0,  0.0,
-				0.0,   0.0, 0.01,  0.0,  0.0,  0.0,
-				0.0,   0.0,  0.0,  0.1,  0.0,  0.0,
-				0.0,   0.0,  0.0,  0.0,  0.1,  0.0,
-				0.0,   0.0,  0.0,  0.0,  0.0,  0.1 };
+				min,    0.0, 0.0,  0.0,  0.0,  0.0,
+				0.0,    min, 0.0,  0.0,  0.0,  0.0,
+				0.0,    0.0, max,  0.0,  0.0,  0.0,
+				0.0,    0.0, 0.0,  max,  0.0,  0.0,
+				0.0,    0.0, 0.0,  0.0,  max,  0.0,
+				0.0,    0.0, 0.0,  0.0,  0.0,  max };
 
 		//set the velocity
 		//odom.child_frame_id = "base_footprint";
@@ -348,12 +354,12 @@ void handleODOM(ros::NodeHandle& node)
 		odom.twist.twist.linear.y = vy;
 		odom.twist.twist.angular.z = vth;
 		odom.twist.covariance = {
-				0.01,  0.0,  0.0,  0.0,  0.0,  0.0,
-				0.0,  0.01,  0.0,  0.0,  0.0,  0.0,
-				0.0,   0.0, 0.01,  0.0,  0.0,  0.0,
-				0.0,   0.0,  0.0,  0.1,  0.0,  0.0,
-				0.0,   0.0,  0.0,  0.0,  0.1,  0.0,
-				0.0,   0.0,  0.0,  0.0,  0.0,  0.1 };
+				min,     0.0,  0.0,  0.0,  0.0,  0.0,
+				0.0,     min,  0.0,  0.0,  0.0,  0.0,
+				0.0,     0.0,  max,  0.0,  0.0,  0.0,
+				0.0,     0.0,  0.0,  max,  0.0,  0.0,
+				0.0,     0.0,  0.0,  0.0,  max,  0.0,
+				0.0,     0.0,  0.0,  0.0,  0.0,  max };
 
 #if 0
 		printf("motor_odoint L(%d,%d,%f) R=(%d,%d,%f) vx=%f vy=%f vth=%f x=%f y=%f v=(%f,%f,%f) th=%f\n”",
